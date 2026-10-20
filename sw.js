@@ -1,6 +1,6 @@
 /* Cartelera: service worker. Solo maneja archivos propios del sitio;
    nunca toca pedidos a TMDB, OMDb ni GitHub. */
-const CACHE = 'cartelera-v2';
+const CACHE = 'cartelera-v4';
 const ASSETS = [
   './', './index.html', './styles.css', './app.js', './qr.js', './manifest.webmanifest',
   './icons/icon-192.png', './icons/icon-512.png', './icons/maskable-512.png',

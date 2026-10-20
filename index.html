@@ -50,8 +50,24 @@
     <div class="rail-head"><p class="rlabel">Filtros</p><button class="btn" id="closeRail" type="button">Listo</button></div>
 
     <section class="rsec" id="secServices">
-      <p class="rlabel">Servicios</p>
+      <p class="rlabel">Qué mostrar</p>
+      <div class="seg seg-sm seg-wide" id="sourceSeg" role="group" aria-label="Qué mostrar">
+        <button type="button" data-source="mine">Mis servicios</button>
+        <button type="button" data-source="all">Todo el cine</button>
+      </div>
       <div class="svc-toggles" id="svcToggles"></div>
+      <p class="hint" id="allHint" hidden>Busca en todo TMDB. Cada tarjeta dice si está en tus servicios; lo que no, lo abrís en Stremio.</p>
+      <label class="check" id="onlyMineWrap" hidden><input type="checkbox" id="onlyMine">Solo lo que está en mis servicios</label>
+    </section>
+
+    <section class="rsec" id="secPeople">
+      <p class="rlabel">Director o actor</p>
+      <div class="chips" id="peopleChips"></div>
+      <div class="ac">
+        <label class="sr" for="personQ">Buscar director o actor</label>
+        <input class="inp" id="personQ" type="search" placeholder="Ej: Ari Aster" autocomplete="off" enterkeyhint="search">
+        <div class="ac-list" id="personAc" role="listbox" hidden></div>
+      </div>
     </section>
 
     <section class="rsec">
@@ -124,6 +140,7 @@
     </section>
 
     <div class="listbar" id="listbar" hidden></div>
+    <div class="specialbar" id="specialBar" hidden></div>
     <div class="resbar" id="resbar">
       <h2 class="count" id="count"></h2>
       <div class="resbar-r"><span id="enrichNote"></span><button class="btn" id="reflowBtn" type="button" hidden>Reordenar con datos nuevos</button><button class="btn" id="globalBtn" type="button" hidden></button></div>

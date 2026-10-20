@@ -61,9 +61,13 @@ var SRC = {
 };
 var SORTS_CATALOG = [['rating', 'Mejor rating'], ['popularity', 'Más populares'], ['year', 'Más nuevas'], ['title', 'Título A-Z']];
 var SORTS_LISTS = [['added', 'Agregadas recién'], ['rating', 'Mejor rating'], ['popularity', 'Más populares'], ['year', 'Más nuevas'], ['title', 'Título A-Z']];
+var SORTS_RECO = [['match', 'Más parecidas'], ['rating', 'Mejor rating'], ['popularity', 'Más populares'], ['year', 'Más nuevas']];
+var SORTS_PERSON = [['year', 'Más nuevas'], ['rating', 'Mejor rating'], ['popularity', 'Más populares'], ['title', 'Título A-Z']];
+var SORTS_SEARCH = [['relevance', 'Relevancia']];
+var KW_STOP = new Set(['woman director', 'duringcreditsstinger', 'aftercreditsstinger', 'sequel', 'prequel', 'remake', 'independent film', 'live action remake', '3d', 'imax', 'short film', 'directorial debut', 'female protagonist', 'male protagonist', 'christmas', 'new year', 'anime', 'lgbt interest', 'shot on 35mm', 'black and white']);
 
 var DEFAULT_SETTINGS = { tmdbKey: '', omdbKey: '', lang: 'es-MX', region: 'AR', depth: 'normal', minVotes: 30, theme: 'system', ghToken: '', gistId: '' };
-function defaultFilters() { return { services: SERVICES.map(function (s) { return s.key; }), ratingSrc: 'tmdb', ratingMin: 0, includeUnknown: false, genres: {}, genreMode: 'any', yearFrom: '', yearTo: '', maxRuntime: 0, hideSeen: true }; }
+function defaultFilters() { return { services: SERVICES.map(function (s) { return s.key; }), ratingSrc: 'tmdb', ratingMin: 0, includeUnknown: false, genres: {}, genreMode: 'any', yearFrom: '', yearTo: '', maxRuntime: 0, hideSeen: true, people: [], onlyMine: false }; }
 
 /* ---------- user data: lists, seen, stars (sync-friendly) ----------
    Every change carries a timestamp. Two copies merge by keeping the newest
@@ -83,7 +87,7 @@ function cleanSnap(s, k) {
     v: num(s.v), vc: num(s.vc), pop: num(s.pop), p: safePath(s.p)
   };
 }
-function blankList(id, name, at) { return { id: id, name: name, nameAt: at || 0, createdAt: at || 0, deletedAt: 0, adds: {}, rms: {} }; }
+function blankList(id, name, at) { return { id: id, name: name, nameAt: at || 0, createdAt: at || 0, deletedAt: 0, adds: {}, rms: {}, seeds: {}, nos: {} }; }
 function blankUser() { return { v: 2, lists: [blankList('watchlist', 'Mi lista', 0)], seen: {}, unseen: {}, stars: {}, items: {}, updatedAt: 0 }; }
 function upsertList(u, l) {
   var ex = u.lists.filter(function (x) { return x.id === l.id; })[0];
@@ -92,6 +96,7 @@ function upsertList(u, l) {
   ex.createdAt = Math.min(ex.createdAt, l.createdAt);
   ex.deletedAt = ex.id === 'watchlist' ? 0 : Math.max(ex.deletedAt, l.deletedAt);
   maxInto(ex.adds, l.adds); maxInto(ex.rms, l.rms);
+  maxInto(ex.seeds, l.seeds || {}); maxInto(ex.nos, l.nos || {});
 }
 function sortLists(u) { u.lists.sort(function (a, b) { return (a.id === 'watchlist' ? -1 : 0) - (b.id === 'watchlist' ? -1 : 0) || a.createdAt - b.createdAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0); }); return u; }
 function normUser(u) {
@@ -102,7 +107,7 @@ function normUser(u) {
   if (u.v === 2) {
     lists.forEach(function (l) {
       if (!l || typeof l.id !== 'string' || !/^[A-Za-z0-9_-]{1,40}$/.test(l.id)) return;
-      upsertList(out, { id: l.id, name: String(l.name || 'Lista').slice(0, 40), nameAt: +l.nameAt || 0, createdAt: +l.createdAt || 0, deletedAt: +l.deletedAt || 0, adds: tsMap(l.adds), rms: tsMap(l.rms) });
+      upsertList(out, { id: l.id, name: String(l.name || 'Lista').slice(0, 40), nameAt: +l.nameAt || 0, createdAt: +l.createdAt || 0, deletedAt: +l.deletedAt || 0, adds: tsMap(l.adds), rms: tsMap(l.rms), seeds: tsMap(l.seeds), nos: tsMap(l.nos) });
     });
     out.seen = tsMap(u.seen); out.unseen = tsMap(u.unseen);
     if (u.stars && typeof u.stars === 'object') Object.keys(u.stars).forEach(function (k) {
@@ -146,7 +151,7 @@ function pruneCache(obj, ttl) { var out = {}, t = Date.now(); Object.keys(obj ||
 var state = {
   settings: Object.assign({}, DEFAULT_SETTINGS, LS.get('settings', {})),
   user: normUser(LS.get('user', null)),
-  ui: Object.assign({ view: 'catalog', type: 'movie', list: 'watchlist', sortCatalog: 'rating', sortLists: 'added' }, LS.get('ui', {})),
+  ui: Object.assign({ view: 'catalog', type: 'movie', list: 'watchlist', source: 'mine', sortCatalog: 'rating', sortLists: 'added', sortReco: 'match', sortPerson: 'year' }, LS.get('ui', {})),
   f: Object.assign(defaultFilters(), LS.get('filters', {})),
   q: '',
   catalogs: { movie: null, tv: null },
@@ -156,7 +161,8 @@ var state = {
   providers: { movie: null, tv: null },
   details: pruneCache(LS.get('details', {}), 30 * DAY),
   omdb: pruneCache(LS.get('omdb', {}), 14 * DAY),
-  global: null,
+  special: null, all: null,
+  personData: {}, personLoading: {}, seedCache: {},
   filtered: [], index: new Map(), limit: PAGE,
   detail: null, menuItem: null, lastPick: null,
   omdbStop: null, fatal: null,
@@ -165,6 +171,9 @@ var state = {
 if (!Array.isArray(state.f.services)) state.f.services = defaultFilters().services;
 if (!state.f.genres || typeof state.f.genres !== 'object') state.f.genres = {};
 if (!SRC[state.f.ratingSrc]) state.f.ratingSrc = 'tmdb';
+if (!Array.isArray(state.f.people)) state.f.people = [];
+state.f.people = state.f.people.filter(function (p) { return p && +p.id > 0; }).map(function (p) { return { id: +p.id, name: String(p.name || '').slice(0, 80) }; }).slice(0, 5);
+if (state.ui.source !== 'all') state.ui.source = 'mine';
 LS.set('user', state.user);
 
 function saveUi() { LS.set('ui', state.ui); LS.set('filters', state.f); }
@@ -390,14 +399,17 @@ var Q = { hi: [], lo: [], queued: new Set(), running: 0, max: 6, om: [], omQueue
 function liteFromFull(d, type) {
   var imdb = d.imdb_id || dig(d, 'external_ids.imdb_id') || null;
   if (imdb && !/^tt\d{5,10}$/.test(imdb)) imdb = null;
-  if (type === 'movie') return { at: Date.now(), rt: +d.runtime || null, imdb: imdb };
+  var wp = dig(d, 'watch/providers.results.' + state.settings.region) || {};
+  var svc = servicesForProviders(type, (wp.flatrate || []).concat(wp.ads || [], wp.free || []));
+  if (type === 'movie') return { v: 2, at: Date.now(), rt: +d.runtime || null, imdb: imdb, svc: svc };
   var ert = d.episode_run_time || [];
   var rt = ert.length ? ert[0] : (dig(d, 'last_episode_to_air.runtime') || null);
-  return { at: Date.now(), rt: +rt || null, imdb: imdb, seasons: +d.number_of_seasons || null };
+  return { v: 2, at: Date.now(), rt: +rt || null, imdb: imdb, svc: svc, seasons: +d.number_of_seasons || null };
 }
+function hasDetails(k) { var d = state.details[k]; return !!(d && d.v === 2); }
 function wantDetails(items, prio) {
   items.forEach(function (it) {
-    if (state.details[it.k] || Q.queued.has(it.k)) return;
+    if (hasDetails(it.k) || Q.queued.has(it.k)) return;
     Q.queued.add(it.k); Q[prio || 'hi'].push(it);
   });
   pumpDetails();
@@ -405,12 +417,12 @@ function wantDetails(items, prio) {
 function pumpDetails() {
   while (Q.running < Q.max && (Q.hi.length || Q.lo.length) && !state.fatal) {
     var it = Q.hi.shift() || Q.lo.shift();
-    if (state.details[it.k]) { Q.queued.delete(it.k); continue; }
+    if (hasDetails(it.k)) { Q.queued.delete(it.k); continue; }
     Q.running++;
     (function (it) {
-      tmdb('/' + it.type + '/' + it.id, { append_to_response: 'external_ids' })
+      tmdb('/' + it.type + '/' + it.id, { append_to_response: 'external_ids,watch/providers' })
         .then(function (d) { state.details[it.k] = liteFromFull(d, it.type); saveCachesSoon(); onEnriched(it); })
-        .catch(function (e) { if (e.code === 'notfound') { state.details[it.k] = { at: Date.now(), rt: null, imdb: null }; } else if (e.fatal) { fatal(e); } })
+        .catch(function (e) { if (e.code === 'notfound') { state.details[it.k] = { v: 2, at: Date.now(), rt: null, imdb: null, svc: [] }; } else if (e.fatal) { fatal(e); } })
         .then(function () { Q.running--; Q.queued.delete(it.k); pumpDetails(); progressNote(); });
     })(it);
   }
@@ -446,7 +458,7 @@ function onEnriched(it) {
   if (dependsOnEnrichment()) softRefresh();
   railStatusSoon();
 }
-function dependsOnEnrichment() { var f = state.f; return f.maxRuntime > 0 || (f.ratingSrc !== 'tmdb' && (f.ratingMin > 0 || curSort() === 'rating')); }
+function dependsOnEnrichment() { var f = state.f; return f.maxRuntime > 0 || (f.ratingSrc !== 'tmdb' && (f.ratingMin > 0 || curSort() === 'rating')) || (f.onlyMine && ctxOpen()); }
 var softRefresh = debounce(function () {
   if (window.scrollY < 400 || !state.filtered.length) refresh(true);
   else $('#reflowBtn').hidden = false;
@@ -498,11 +510,27 @@ function fmtRuntime(rt, type) {
 }
 
 /* ---------- filtering & sorting ---------- */
-function curSort() {
-  var s = state.ui.view === 'lists' ? state.ui.sortLists : state.ui.sortCatalog;
-  if (state.ui.view !== 'lists' && s === 'added') s = 'rating';
-  return s || 'rating';
+/* Contexts: "mine" is the catalog of the four services; "open" is anything that goes beyond them. */
+function ctxMine() { return !state.special && state.ui.view === 'catalog' && state.ui.source !== 'all'; }
+function ctxOpen() { return state.special ? state.special.kind !== 'search' : (state.ui.view === 'catalog' && state.ui.source === 'all'); }
+function isAllMode() { return !state.special && state.ui.view === 'catalog' && state.ui.source === 'all' && !state.f.people.length; }
+function sortOptions() {
+  var sp = state.special;
+  if (sp) return sp.kind === 'reco' ? SORTS_RECO : sp.kind === 'person' ? SORTS_PERSON : SORTS_SEARCH;
+  return state.ui.view === 'lists' ? SORTS_LISTS : SORTS_CATALOG;
 }
+function sortKey() {
+  var sp = state.special;
+  if (sp) return sp.kind === 'reco' ? 'sortReco' : sp.kind === 'person' ? 'sortPerson' : 'sortSearch';
+  return state.ui.view === 'lists' ? 'sortLists' : 'sortCatalog';
+}
+function curSort() {
+  var opts = sortOptions(), s = state.ui[sortKey()];
+  return opts.some(function (o) { return o[0] === s; }) ? s : opts[0][0];
+}
+function svcOf(it) { if (it.s && it.s.length) return it.s; var d = state.details[it.k]; return d && d.v === 2 ? d.svc : []; }
+function availKnown(it) { return !!((it.s && it.s.length) || hasDetails(it.k)); }
+function fromCatalog(it) { var idx = catIndex(it.type); return (idx && idx.get(it.k)) || it; }
 function genreNames(it) { var m = state.genres[it.type]; return (it.g || []).map(function (id) { return m.get(id); }).filter(Boolean); }
 function resolveItem(k) {
   var type = typeOfKey(k), idx = catIndex(type);
@@ -511,9 +539,23 @@ function resolveItem(k) {
   if (!snap) snap = cleanSnap({ t: 'Título ' + k.slice(2) }, k);
   return Object.assign({}, snap, { s: [], off: !!state.catalogs[type] });
 }
+function peoplePool(type) {
+  var seen = new Set(), out = [];
+  state.f.people.forEach(function (p) {
+    var d = state.personData[p.id]; if (!d) return;
+    d.items.forEach(function (it) { if (it.type === type && !seen.has(it.k)) { seen.add(it.k); out.push(fromCatalog(it)); } });
+  });
+  return out;
+}
 function currentPool() {
+  if (state.special) return state.special.items || [];
   if (state.ui.view === 'catalog') {
-    if (state.global) return state.global.items;
+    if (state.ui.source === 'all') {
+      if (state.f.people.length) return peoplePool(state.ui.type);
+      var A = state.all;
+      if (!A || A.sig !== allSig()) { loadAllSoon(); return []; }
+      return A.items;
+    }
     var c = state.catalogs[state.ui.type]; return c ? c.items : [];
   }
   var keys;
@@ -522,14 +564,25 @@ function currentPool() {
   return keys.map(resolveItem).filter(Boolean);
 }
 function applyFilters(list) {
-  var f = state.f, q = fold(state.q), inCatalog = state.ui.view === 'catalog';
+  var f = state.f, q = fold(state.q), mine = ctxMine(), open = ctxOpen();
   var services = new Set(f.services);
   var inc = [], exc = [];
   Object.keys(f.genres).forEach(function (n) { if (f.genres[n] === 1) inc.push(n); else if (f.genres[n] === -1) exc.push(n); });
   var yFrom = parseInt(f.yearFrom, 10) || 0, yTo = parseInt(f.yearTo, 10) || 0;
-  var hideSeen = f.hideSeen && !(state.ui.view === 'lists' && state.ui.list === 'seen');
+  var hideSeen = f.hideSeen && !(state.ui.view === 'lists' && state.ui.list === 'seen' && !state.special);
+  var pk = null;
+  if (f.people.length && !(state.special && state.special.kind === 'person')) {
+    pk = [];
+    f.people.forEach(function (p) {
+      var d = state.personData[p.id];
+      if (d) pk.push(d.keys);
+      else if (!state.personLoading[p.id]) loadPersonCredits(p.id).then(function () { refresh(true); }, function (e) { if (e && e.fatal) fatal(e); });
+    });
+  }
   return list.filter(function (it) {
-    if (inCatalog && !it.s.some(function (s) { return services.has(s); })) return false;
+    if (mine && !it.s.some(function (s) { return services.has(s); })) return false;
+    if (open && f.onlyMine && !svcOf(it).length) return false;
+    if (pk && !pk.some(function (set) { return set.has(it.k); })) return false;
     if (hideSeen && isSeen(it.k)) return false;
     if (q && fold(it.t).indexOf(q) < 0 && fold(it.ot).indexOf(q) < 0) return false;
     if (inc.length || exc.length) {
@@ -554,7 +607,8 @@ function applyFilters(list) {
 function sortItems(list) {
   var s = curSort(), src = state.f.ratingSrc, arr = list.slice();
   var pop = function (a, b) { return (b.pop || 0) - (a.pop || 0); };
-  if (s === 'added') return arr;
+  if (s === 'added' || s === 'relevance') return arr;
+  if (s === 'match') { var meta = (state.special && state.special.meta) || new Map(); var m = function (it) { var x = meta.get(it.k); return x ? x.match : 0; }; return arr.sort(function (a, b) { return m(b) - m(a); }); }
   if (s === 'popularity') return arr.sort(pop);
   if (s === 'year') return arr.sort(function (a, b) { return (b.y || 0) - (a.y || 0) || pop(a, b); });
   if (s === 'title') return arr.sort(function (a, b) { return String(a.t).localeCompare(String(b.t), 'es'); });
@@ -574,6 +628,8 @@ function activeFilterCount() {
   if (f.yearFrom || f.yearTo) n++;
   if (f.maxRuntime > 0) n++;
   if (!f.hideSeen) n++;
+  n += f.people.length;
+  if (f.onlyMine && ctxOpen()) n++;
   return n;
 }
 
@@ -600,15 +656,25 @@ function subHTML(it) {
   return esc(parts.join(' · '));
 }
 function svcBadge(k) { return '<span class="sb c-' + k + '">' + esc(SVC[k].label) + '</span>'; }
+function stremioHref(type, imdb, web) {
+  if (!/^tt\d{5,10}$/.test(imdb || '')) return null;
+  var path = type === 'tv' ? 'detail/series/' + imdb : 'detail/movie/' + imdb + '/' + imdb;
+  return web ? 'https://web.stremio.com/#/' + path : 'stremio:///' + path;
+}
 function svcsHTML(it) {
-  var out = (it.s || []).map(svcBadge);
-  if (it.ext && it.ext.length) { it.ext.slice(0, 2).forEach(function (n) { out.push('<span class="sb dim">' + esc(n) + '</span>'); }); if (it.ext.length > 2) out.push('<span class="sb dim">+' + (it.ext.length - 2) + '</span>'); }
+  var list = svcOf(it), out = list.map(svcBadge);
   if (!out.length) {
-    if (it.extLoading) out.push('<span class="sb dim">Buscando dónde verla…</span>');
-    else if (it.ext) out.push('<span class="sb dim">Sin streaming en Argentina</span>');
-    else if (it.off) out.push('<span class="sb dim">Fuera de tus servicios</span>');
+    if (!availKnown(it)) out.push('<span class="sb dim">' + (it.off ? 'Fuera de tus servicios' : 'Buscando dónde verla…') + '</span>');
+    else {
+      var d = state.details[it.k], href = d && stremioHref(it.type, d.imdb);
+      out.push(href ? '<a class="sb stremio" href="' + href + '" title="No está en tus servicios. Abrir en Stremio">Stremio ↗</a>' : '<span class="sb dim">Fuera de tus servicios</span>');
+    }
   }
   return out.join('');
+}
+function whyHTML(it) {
+  var meta = state.special && state.special.meta && state.special.meta.get(it.k);
+  return meta && meta.why ? '<p class="why">' + esc(meta.why) + '</p>' : '';
 }
 function cardHTML(it) {
   var watch = inList('watchlist', it.k), seen = isSeen(it.k), t = esc(it.t), p = safePath(it.p);
@@ -620,7 +686,7 @@ function cardHTML(it) {
       '<button class="q" type="button" data-act="seen" aria-pressed="' + seen + '" aria-label="Ya la vi" title="Ya la vi">' + ICON.eye + '</button>' +
       '<button class="q" type="button" data-act="lists" aria-haspopup="menu" aria-label="Agregar a otra lista" title="Agregar a otra lista">' + ICON.plus + '</button>' +
     '</div>' + (seen ? '<span class="seen-tag">Vista</span>' : '') + '</div>' +
-    '<div class="meta"><h3 class="t" title="' + t + '">' + t + '</h3><p class="sub">' + subHTML(it) + '</p><p class="scores">' + scoresHTML(it) + '</p><p class="svcs">' + svcsHTML(it) + '</p></div>' +
+    '<div class="meta"><h3 class="t" title="' + t + '">' + t + '</h3><p class="sub">' + subHTML(it) + '</p><p class="scores">' + scoresHTML(it) + '</p><p class="svcs">' + svcsHTML(it) + '</p>' + whyHTML(it) + '</div>' +
     '</article>';
 }
 function cardEl(k) { var found = null; $$('.card[data-k]', grid).some(function (c) { if (c.dataset.k === k) { found = c; return true; } return false; }); return found; }
@@ -644,13 +710,17 @@ function syncCardButtons(el, it) {
 }
 
 function refresh(keepLimit) {
-  var poolList = currentPool();
-  var list = state.global ? poolList : sortItems(applyFilters(poolList));
+  var poolList = currentPool(), sp = state.special;
+  var list;
+  if (sp && sp.kind === 'search') list = poolList;
+  else if (isAllMode()) list = applyFilters(poolList);
+  else list = sortItems(applyFilters(poolList));
   state.filtered = list;
   state.index = new Map(list.map(function (it) { return [it.k, it]; }));
   if (!keepLimit) state.limit = PAGE;
+  if (isAllMode()) state.limit = Math.max(state.limit, list.length);
   $('#reflowBtn').hidden = true;
-  renderTop(); renderListbar(); renderCount(); renderGrid(keepLimit); renderRailStatus(); saveUi();
+  renderTop(); renderListbar(); renderSpecialBar(); renderCount(); renderGrid(keepLimit); renderRailStatus(); saveUi();
   if (state.menuItem) renderMenu();
 }
 
@@ -658,8 +728,11 @@ function renderGrid(keepScroll) {
   var y = window.scrollY;
   var empty = $('#empty'), more = $('#more');
   if (io) io.disconnect();
-  var loadingCat = state.ui.view === 'catalog' && !state.global && !state.catalogs[state.ui.type] && !state.fatal;
-  if (loadingCat || (state.global && state.global.loading)) {
+  var sp = state.special, A = state.all;
+  var loadingCat = !sp && state.ui.view === 'catalog' && state.ui.source !== 'all' && !state.catalogs[state.ui.type] && !state.fatal;
+  var loadingAll = isAllMode() && !state.fatal && (!A || A.sig !== allSig() || (A.loading && !A.items.length));
+  var loadingPeople = !sp && state.f.people.length && state.f.people.some(function (p) { return !state.personData[p.id]; }) && !state.fatal;
+  if (loadingCat || loadingAll || loadingPeople || (sp && sp.loading)) {
     var sk = ''; for (var i = 0; i < 12; i++) sk += '<div class="card"><div class="skel"></div></div>';
     grid.innerHTML = sk; empty.hidden = true; more.hidden = true; return;
   }
@@ -671,12 +744,18 @@ function renderGrid(keepScroll) {
   }
   empty.hidden = true;
   grid.innerHTML = list.slice(0, state.limit).map(cardHTML).join('');
-  more.hidden = list.length <= state.limit;
-  if (!more.hidden) more.textContent = 'Mostrar más (' + nf.format(list.length - state.limit) + ' restantes)';
+  if (isAllMode()) {
+    more.hidden = !(A && A.page < A.total);
+    more.textContent = A && A.loading ? 'Cargando…' : 'Cargar más';
+  } else {
+    more.hidden = list.length <= state.limit;
+    if (!more.hidden) more.textContent = 'Mostrar más (' + nf.format(list.length - state.limit) + ' restantes)';
+  }
   observeCards();
   if (keepScroll) window.scrollTo(0, y);
 }
 function renderMore() {
+  if (isAllMode()) { loadAll(true); return; }
   var list = state.filtered, from = state.limit;
   if (from >= list.length) return;
   state.limit += PAGE;
@@ -695,6 +774,10 @@ function observeCards() {
   }
 }
 function emptyHTML() {
+  var sp = state.special;
+  if (sp && sp.kind === 'search') return '<strong>Sin resultados</strong><p>TMDB no encontró nada para «' + esc(sp.q) + '».</p>';
+  if (sp && sp.error) return '<strong>No pude cargar esto</strong><p>' + esc(sp.error) + '</p><button class="btn" type="button" data-back>Volver</button>';
+  if (sp) return '<strong>Nada coincide</strong><p>Hay ' + nf.format((sp.items || []).length) + ' títulos, pero ninguno pasa los filtros.</p><button class="btn" type="button" data-clear>Limpiar filtros</button>';
   if (state.ui.view === 'lists') {
     var l = state.ui.list === 'seen' ? null : getList(state.ui.list);
     var total = state.ui.list === 'seen' ? seenKeys().length : (l ? listKeys(l).length : 0);
@@ -703,41 +786,60 @@ function emptyHTML() {
       : '<strong>Esta lista está vacía</strong><p>Tocá el marcador de un póster para sumarla a Mi lista, o el + para elegir otra lista.</p><button class="btn" type="button" data-go="catalog">Ir al catálogo</button>';
     return '<strong>Nada coincide</strong><p>La lista tiene ' + nf.format(total) + ' títulos pero ninguno pasa los filtros.</p><button class="btn" type="button" data-clear>Limpiar filtros</button>';
   }
-  if (state.global) return '<strong>Sin resultados</strong><p>TMDB no encontró nada para «' + esc(state.global.q) + '».</p>';
-  if (!state.catalogs[state.ui.type]) return '';
+  if (state.ui.source !== 'all' && !state.catalogs[state.ui.type]) return '';
   var extra = state.q && state.q.length >= 2 ? '<button class="btn btn-accent" type="button" data-global>Buscar «' + esc(state.q) + '» en todo TMDB</button>' : '';
   return '<strong>Nada coincide</strong><p>Probá bajar el rating mínimo, sacar algún género o prender otro servicio.</p><div class="pick-bar">' + extra + '<button class="btn" type="button" data-clear>Limpiar filtros</button></div>';
 }
 function renderCount() {
   var el = $('#count'), n = state.filtered.length, gb = $('#globalBtn');
   var noun = function (type, c) { return type === 'movie' ? (c === 1 ? 'película' : 'películas') : (c === 1 ? 'serie' : 'series'); };
+  var titles = function (c) { return nf.format(c) + (c === 1 ? ' título' : ' títulos'); };
   gb.hidden = true;
+  var sp = state.special;
+  if (sp) {
+    gb.hidden = false; gb.textContent = 'Volver'; gb.dataset.mode = 'back';
+    if (sp.kind === 'search') el.innerHTML = 'Resultados<small>para «' + esc(sp.q) + '» en todo TMDB</small>';
+    else if (sp.kind === 'person') el.innerHTML = esc(sp.title) + '<small>' + (sp.loading ? 'cargando filmografía…' : titles(n)) + '</small>';
+    else el.innerHTML = esc(sp.title) + '<small>' + (sp.loading ? (sp.progress || 'buscando parecidas…') : titles(n)) + '</small>';
+    return;
+  }
   if (state.ui.view === 'lists') {
     var name = state.ui.list === 'seen' ? 'Vistas' : (getList(state.ui.list) || {}).name;
-    el.innerHTML = esc(name) + '<small>' + nf.format(n) + (n === 1 ? ' título' : ' títulos') + '</small>';
+    el.innerHTML = esc(name) + '<small>' + titles(n) + '</small>';
     return;
   }
-  if (state.global) {
-    el.innerHTML = 'Resultados<small>para «' + esc(state.global.q) + '» en todo TMDB</small>';
-    gb.hidden = false; gb.textContent = 'Volver a mi cartelera'; gb.dataset.mode = 'back';
-    return;
+  if (state.ui.source === 'all') {
+    if (state.f.people.length) el.innerHTML = nf.format(n) + ' ' + noun(state.ui.type, n) + '<small>con ' + esc(state.f.people.map(function (p) { return p.name; }).join(' o ')) + '</small>';
+    else {
+      var A = state.all, ready = A && A.sig === allSig() && A.page > 0;
+      el.innerHTML = ready ? nf.format(A.totalResults || n) + ' ' + noun(state.ui.type, A.totalResults || n) + '<small>en todo el cine</small>' : 'Todo el cine<small>buscando…</small>';
+    }
+  } else {
+    if (!state.catalogs[state.ui.type]) { el.innerHTML = state.fatal ? 'Cartelera' : 'Armando tu cartelera<small>la primera vez tarda un poco</small>'; return; }
+    el.innerHTML = nf.format(n) + ' ' + noun(state.ui.type, n) + '<small>en tus servicios</small>';
   }
-  if (!state.catalogs[state.ui.type]) { el.innerHTML = state.fatal ? 'Cartelera' : 'Armando tu cartelera<small>la primera vez tarda un poco</small>'; return; }
-  el.innerHTML = nf.format(n) + ' ' + noun(state.ui.type, n) + '<small>en tus servicios</small>';
   if (state.q && state.q.length >= 2) { gb.hidden = false; gb.textContent = 'Buscar «' + state.q + '» en todo TMDB'; gb.dataset.mode = 'search'; }
 }
 function renderTop() {
   $$('#viewSeg button').forEach(function (b) { b.setAttribute('aria-pressed', b.dataset.view === state.ui.view); });
   $$('#typeSeg button').forEach(function (b) { b.setAttribute('aria-pressed', b.dataset.type === state.ui.type); });
-  $('#typeSeg').hidden = state.ui.view === 'lists';
-  var sel = $('#sort'), opts = state.ui.view === 'lists' ? SORTS_LISTS : SORTS_CATALOG, cur = curSort();
+  $('#typeSeg').hidden = state.ui.view === 'lists' || !!state.special;
+  var sel = $('#sort'), opts = sortOptions(), cur = curSort();
   sel.innerHTML = opts.map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === cur ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('');
-  $('#secServices').hidden = state.ui.view === 'lists';
+  sel.disabled = opts.length < 2;
+  var sp = state.special;
+  $('#secServices').hidden = !sp && state.ui.view === 'lists';
+  $('#sourceSeg').hidden = !!sp;
+  $$('#sourceSeg button').forEach(function (b) { b.setAttribute('aria-pressed', b.dataset.source === state.ui.source); });
+  $('#svcToggles').hidden = !ctxMine();
+  $('#allHint').hidden = !(!sp && state.ui.view === 'catalog' && state.ui.source === 'all');
+  $('#onlyMineWrap').hidden = !ctxOpen();
+  $('#onlyMine').checked = !!state.f.onlyMine;
   var n = activeFilterCount(), fc = $('#fcount'); fc.hidden = !n; fc.textContent = n;
 }
 function renderListbar() {
   var bar = $('#listbar');
-  bar.hidden = state.ui.view !== 'lists';
+  bar.hidden = state.ui.view !== 'lists' || !!state.special;
   if (bar.hidden) return;
   var cur = state.ui.list;
   if (cur !== 'seen' && !getList(cur)) cur = state.ui.list = 'watchlist';
@@ -750,9 +852,17 @@ function renderListbar() {
   else if (state.listEdit === 'rename' && editable) tools = '<form class="inline-form" data-form="rename"><label class="sr" for="renListInp">Nuevo nombre</label><input class="inp" id="renListInp" maxlength="40" value="' + esc(l.name) + '"><button class="btn btn-accent" type="submit">Guardar</button><button class="btn btn-ghost" type="button" data-cancel>Cancelar</button></form>';
   else {
     tools = '<button class="btn" type="button" data-tool="new"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Nueva lista</button>';
+    var count = l ? listKeys(l).length : 0;
+    if (l && isRadio(l)) tools += '<button class="btn btn-accent" type="button" data-tool="radio-more"' + (state.radioBusy ? ' disabled' : '') + '>' + (state.radioBusy ? 'Buscando…' : 'Sumar 10 más') + '</button>';
+    else if (l && count) tools += '<button class="btn" type="button" data-tool="reco">Parecidas a esta lista</button><button class="btn" type="button" data-tool="radio-from">Armar radio</button>';
     if (editable) tools += '<button class="btn btn-ghost" type="button" data-tool="rename">Renombrar</button><button class="btn btn-ghost" type="button" data-tool="delete">' + (state.confirmDelete === l.id ? 'Confirmar borrado' : 'Borrar lista') + '</button>';
   }
-  bar.innerHTML = pills.join('') + '<span class="list-tools">' + tools + '</span>';
+  var radioHint = '';
+  if (l && isRadio(l) && !state.listEdit) {
+    var seeds = Object.keys(l.seeds).map(resolveItem).filter(Boolean).map(function (s) { return s.t; });
+    radioHint = '<p class="hint radio-hint"><span class="radio-tag">Radio</span> Semillas: ' + esc(seeds.join(', ')) + '. Abrí una peli de la lista para sumarla como semilla o decir que no va.</p>';
+  }
+  bar.innerHTML = pills.join('') + '<span class="list-tools">' + tools + '</span>' + radioHint;
   var inp = $('#newListInp') || $('#renListInp'); if (inp) inp.focus();
 }
 
@@ -770,6 +880,13 @@ function renderRail() {
   $('#yFrom').value = state.f.yearFrom || ''; $('#yTo').value = state.f.yearTo || '';
   $('#maxRt').value = String(state.f.maxRuntime || 0);
   $('#hideSeen').checked = !!state.f.hideSeen;
+  $('#onlyMine').checked = !!state.f.onlyMine;
+  renderPeopleChips();
+}
+function renderPeopleChips() {
+  $('#peopleChips').innerHTML = state.f.people.map(function (p) {
+    return '<span class="pchip">' + esc(p.name) + '<button type="button" data-unperson="' + (+p.id) + '" aria-label="Quitar ' + esc(p.name) + '">' + ICON.x + '</button></span>';
+  }).join('');
 }
 function renderGenreChips() {
   var names = new Set();
@@ -786,7 +903,7 @@ function renderGenreChips() {
 function renderRailStatus() {
   var el = $('#railStatus'); if (!el) return;
   var out = [], type = state.ui.type, cat = state.catalogs[type];
-  if (state.ui.view === 'catalog' && cat) {
+  if (ctxMine() && cat) {
     var ago = Math.round((Date.now() - cat.at) / 36e5);
     out.push('<p><b>' + nf.format(cat.items.length) + '</b> ' + (type === 'movie' ? 'películas' : 'series') + ' en el catálogo · ' + (ago < 1 ? 'leído recién' : 'leído hace ' + ago + ' h') + ' · <button class="linkbtn" type="button" data-reload>Actualizar</button></p>');
   }
@@ -877,12 +994,16 @@ function renderDetail() {
   }).join('');
   var people = '';
   if (full) {
-    var crew = dig(full, 'credits.crew') || [], cast = (dig(full, 'credits.cast') || []).slice(0, 6).map(function (c) { return c.name; });
-    var dir = it.type === 'movie' ? crew.filter(function (c) { return c.job === 'Director'; }).map(function (c) { return c.name; }) : (full.created_by || []).map(function (c) { return c.name; });
-    if (dir.length) people += '<dt>' + (it.type === 'movie' ? 'Dirección' : 'Creada por') + '</dt><dd>' + esc(dir.join(', ')) + '</dd>';
-    if (cast.length) people += '<dt>Reparto</dt><dd>' + esc(cast.join(', ')) + '</dd>';
+    var crew = dig(full, 'credits.crew') || [], cast = (dig(full, 'credits.cast') || []).slice(0, 8);
+    var dir = it.type === 'movie' ? crew.filter(function (c) { return c.job === 'Director'; }) : (full.created_by || []);
+    var wri = it.type === 'movie' ? crew.filter(function (c) { return c.job === 'Screenplay' || c.job === 'Writer'; }).slice(0, 3) : [];
+    var pbtn = function (p) { return '<button class="plink" type="button" data-person="' + (+p.id) + '" data-pname="' + esc(p.name) + '">' + esc(p.name) + '</button>'; };
+    var uniq = function (arr) { var s = {}; return arr.filter(function (p) { if (!p || !p.id || s[p.id]) return false; s[p.id] = 1; return true; }); };
+    if (dir.length) people += '<dt>' + (it.type === 'movie' ? 'Dirección' : 'Creada por') + '</dt><dd>' + uniq(dir).map(pbtn).join(', ') + '</dd>';
+    if (wri.length) people += '<dt>Guion</dt><dd>' + uniq(wri).map(pbtn).join(', ') + '</dd>';
+    if (cast.length) people += '<dt>Reparto</dt><dd>' + uniq(cast).map(pbtn).join(', ') + '</dd>';
   }
-  var wtw = '';
+  var wtw = '', mineHere = false;
   if (full) {
     var wp = dig(full, 'watch/providers.results.' + state.settings.region) || {};
     var flat = (wp.flatrate || []).concat(wp.ads || [], wp.free || []);
@@ -891,9 +1012,10 @@ function renderDetail() {
       var svc = servicesForProviders(it.type, [p]);
       return svc.length ? '<span class="sb c-' + svc[0] + '">' + esc(p.provider_name) + '</span>' : '<span class="sb dim">' + esc(p.provider_name) + '</span>';
     }).join('');
-    var rentNames = Array.from(new Set((wp.rent || []).concat(wp.buy || []).map(function (p) { return p.provider_name; })));
-    wtw = '<div class="dsec"><h3>Dónde verla en Argentina</h3>' + (flatHtml ? '<div class="wtw">' + flatHtml + '</div>' : '<p class="hint">No figura en ninguna plataforma de suscripción.</p>') +
-      (rentNames.length ? '<p class="hint">Para alquilar o comprar: ' + esc(rentNames.slice(0, 5).join(', ')) + '.</p>' : '') + '</div>';
+    mineHere = servicesForProviders(it.type, flat).length > 0;
+    var stApp = stremioHref(it.type, lite.imdb), stWeb = stremioHref(it.type, lite.imdb, true);
+    var stremioRow = !mineHere && stApp ? '<div class="actions-2"><a class="btn" href="' + stApp + '">Abrir en Stremio</a><a class="btn btn-ghost" href="' + stWeb + '" target="_blank" rel="noopener noreferrer">Stremio Web</a></div>' : '';
+    wtw = '<div class="dsec"><h3>Dónde verla en Argentina</h3>' + (flatHtml ? '<div class="wtw">' + flatHtml + '</div>' : '<p class="hint">No está en ninguna plataforma de suscripción en Argentina.</p>') + stremioRow + '</div>';
   }
   var vids = full ? (dig(full, 'videos.results') || []).filter(function (v) { return v.site === 'YouTube' && /Trailer|Teaser/.test(v.type) && /^[A-Za-z0-9_-]{6,20}$/.test(v.key); }) : [];
   var lang2 = state.settings.lang.slice(0, 2);
@@ -903,8 +1025,9 @@ function renderDetail() {
   if (vids[0]) links.push('<a href="https://www.youtube.com/watch?v=' + vids[0].key + '"' + ext + '>Ver tráiler</a>');
   links.push('<a href="https://www.themoviedb.org/' + it.type + '/' + (+it.id) + '/watch?locale=' + state.settings.region + '"' + ext + '>Dónde ver (TMDB)</a>');
   if (lite.imdb) links.push('<a href="https://www.imdb.com/title/' + lite.imdb + '/"' + ext + '>IMDb</a>');
+  if (lite.imdb && mineHere) links.push('<a href="' + stremioHref(it.type, lite.imdb) + '">Stremio</a>');
   if (it.type === 'movie') links.push('<a href="https://letterboxd.com/tmdb/' + (+it.id) + '/"' + ext + '>Letterboxd</a>');
-  var watch = inList('watchlist', it.k), seen = isSeen(it.k), stars = starOf(it.k);
+  var watch = inList('watchlist', it.k), seen = isSeen(it.k), stars = starOf(it.k), rctx = radioContext();
   var starBtns = ''; for (var i = 1; i <= 5; i++) starBtns += '<button class="star' + (i <= stars ? ' on' : '') + '" type="button" data-star="' + i + '" aria-label="' + i + (i === 1 ? ' estrella' : ' estrellas') + '" aria-pressed="' + (i === stars) + '">' + ICON.star + '</button>';
   var listChips = visibleLists().filter(function (l) { return l.id !== 'watchlist'; }).map(function (l) { return '<button class="chip" type="button" data-dlist="' + esc(l.id) + '" aria-pressed="' + isIn(l, it.k) + '">' + esc(l.name) + '</button>'; }).join('');
   var html =
@@ -923,6 +1046,11 @@ function renderDetail() {
           '<button class="btn" type="button" data-dact="watch" aria-pressed="' + watch + '">' + (watch ? 'En Mi lista' : 'Sumar a Mi lista') + '</button>' +
           '<button class="btn" type="button" data-dact="seen" aria-pressed="' + seen + '">' + (seen ? 'Vista' : 'Marcar como vista') + '</button>' +
           '<span class="stars" role="group" aria-label="Tu puntaje">' + starBtns + '</span>' +
+        '</div>' +
+        '<div class="actions-2">' +
+          '<button class="btn" type="button" data-dact="reco">Más como esta</button>' +
+          '<button class="btn" type="button" data-dact="radio">Radio ' + esc(String(title).slice(0, 28)) + '</button>' +
+          (rctx && listKeys(rctx).indexOf(it.k) >= 0 ? (rctx.seeds[it.k] ? '<span class="hint">Es semilla de esta radio.</span>' : '<button class="btn" type="button" data-dact="seed">Sumar como semilla</button>') + '<button class="btn btn-ghost" type="button" data-dact="nope">No va en esta radio</button>' : '') +
         '</div>' +
         (listChips ? '<div class="dsec"><h3>Tus listas</h3><div class="chips">' + listChips + '</div></div>' : '') +
         (full && full.tagline ? '<p class="tagline">' + esc(full.tagline) + '</p>' : '') +
@@ -963,37 +1091,303 @@ function renderMenu() {
 }
 function closeMenu() { var m = $('#listMenu'); if (m && !m.hidden) { m.hidden = true; state.menuItem = null; } }
 
-/* ---------- global search ---------- */
+/* ---------- búsqueda en todo TMDB ---------- */
 async function globalSearch(q) {
   var type = state.ui.type;
-  state.global = { q: q, items: [], loading: true };
-  refresh();
+  closeRail();
+  var sp = state.special = { kind: 'search', q: q, items: [], loading: true };
+  refresh(); window.scrollTo(0, 0);
   try {
     await loadProviders(type);
     var d = await tmdb('/search/' + type, { query: q, language: state.settings.lang, include_adult: 'false', page: 1 });
-    if (!state.global || state.global.q !== q) return;
-    var idx = catIndex(type);
-    var items = (d.results || []).slice(0, 20).map(function (r) {
-      var k = itemKey(type, r.id), inCat = idx && idx.get(k);
-      if (inCat) return inCat;
-      var it = norm(r, type); it.extLoading = true; return it;
-    });
-    state.global = { q: q, items: items, loading: false };
+    if (state.special !== sp) return;
+    sp.items = (d.results || []).slice(0, 20).map(function (r) { return fromCatalog(norm(r, type)); });
+    sp.loading = false;
     refresh();
-    await pool(items.filter(function (it) { return it.extLoading; }), 4, async function (it) {
-      try {
-        var p = await tmdb('/' + type + '/' + it.id + '/watch/providers');
-        var ar = dig(p, 'results.' + state.settings.region) || {};
-        var flat = (ar.flatrate || []).concat(ar.ads || [], ar.free || []);
-        it.s = servicesForProviders(type, flat);
-        var names = Array.from(new Set(flat.map(function (x) { return String(x.provider_name); })));
-        it.ext = names.filter(function (n) { return !it.s.some(function (k) { return SVC[k].re.test(n); }); });
-      } catch (e) { if (e.fatal) throw e; it.ext = []; }
-      it.extLoading = false; updateCard(it.k);
-    });
+    wantDetails(sp.items, 'hi');
   } catch (e) {
-    if (e.fatal) fatal(e); else { toast(e.message); state.global = null; refresh(); }
+    if (e.fatal) fatal(e); else { toast(e.message); state.special = null; refresh(); }
   }
+}
+function clearQuery() { state.q = ''; var qi = document.getElementById('q'); if (qi) qi.value = ''; }
+function backFromSpecial() { state.special = null; refresh(); window.scrollTo(0, 0); }
+
+/* ---------- todo el cine (TMDB en vivo, con los filtros) ---------- */
+function allParams(type) {
+  var f = state.f, byName = {};
+  state.genres[type].forEach(function (n, id) { byName[n] = id; });
+  var inc = [], exc = [];
+  Object.keys(f.genres).forEach(function (n) { var id = byName[n]; if (!id) return; if (f.genres[n] === 1) inc.push(id); else if (f.genres[n] === -1) exc.push(id); });
+  var s = curSort(), dk = type === 'movie' ? 'primary_release_date' : 'first_air_date';
+  var p = { include_adult: 'false', language: state.settings.lang };
+  if (inc.length) p.with_genres = inc.join(f.genreMode === 'all' ? ',' : '|');
+  if (exc.length) p.without_genres = exc.join(',');
+  var yF = parseInt(f.yearFrom, 10), yT = parseInt(f.yearTo, 10);
+  if (yF) p[dk + '.gte'] = yF + '-01-01';
+  if (yT) p[dk + '.lte'] = yT + '-12-31';
+  if (f.ratingSrc === 'tmdb' && f.ratingMin > 0) p['vote_average.gte'] = f.ratingMin;
+  if (f.maxRuntime > 0) p['with_runtime.lte'] = f.maxRuntime;
+  var minV = type === 'movie' ? 50 : 20;
+  if (s === 'rating') { p.sort_by = 'vote_average.desc'; minV = type === 'movie' ? 300 : 100; }
+  else if (s === 'year') { p.sort_by = dk + '.desc'; if (!p[dk + '.lte']) p[dk + '.lte'] = today(); }
+  else if (s === 'title') p.sort_by = type === 'movie' ? 'original_title.asc' : 'name.asc';
+  else p.sort_by = 'popularity.desc';
+  p['vote_count.gte'] = minV;
+  return p;
+}
+function allSig() { var t = state.ui.type; return t + '|' + stable(allParams(t)); }
+var loadAllSoon = debounce(function () { if (isAllMode()) loadAll(false); }, 250);
+async function loadAll(more) {
+  if (!state.settings.tmdbKey || state.fatal) return;
+  var type = state.ui.type, sig = allSig(), A = state.all;
+  if (!A || A.sig !== sig) A = state.all = { sig: sig, type: type, items: [], keys: new Set(), page: 0, total: 1, totalResults: 0, loading: false };
+  else if (!more) return;
+  if (A.loading || A.page >= A.total) return;
+  A.loading = true;
+  if (more) { var mb = $('#more'); mb.textContent = 'Cargando…'; }
+  try {
+    var d = await tmdb('/discover/' + type, Object.assign({}, allParams(type), { page: A.page + 1 }));
+    if (state.all !== A) return;
+    A.page = d.page || (A.page + 1); A.total = Math.min(d.total_pages || 1, 500); A.totalResults = d.total_results || A.totalResults;
+    var fresh = [];
+    (d.results || []).forEach(function (r) { var it = fromCatalog(norm(r, type)); if (A.keys.has(it.k)) return; A.keys.add(it.k); A.items.push(it); fresh.push(it); });
+    if (state.f.onlyMine) wantDetails(fresh, 'lo');
+  } catch (e) {
+    if (e.fatal) { fatal(e); return; }
+    toast(e.message); A.total = A.page;
+  } finally { A.loading = false; }
+  if (state.all === A) refresh(true);
+}
+
+/* ---------- personas ---------- */
+function loadPersonCredits(id) {
+  if (state.personData[id]) return Promise.resolve(state.personData[id]);
+  if (state.personLoading[id]) return state.personLoading[id];
+  var pr = tmdb('/person/' + id + '/combined_credits', { language: state.settings.lang }).then(function (cc) {
+    var items = new Map(), roles = {};
+    var add = function (c, role) {
+      if (!c || !c.id || c.adult) return;
+      var type = c.media_type === 'tv' ? 'tv' : 'movie', k = itemKey(type, c.id);
+      if (!items.has(k)) items.set(k, norm(c, type));
+      (roles[k] = roles[k] || {})[role] = 1;
+    };
+    (cc.cast || []).forEach(function (c) { add(c, 'act'); });
+    (cc.crew || []).forEach(function (c) { if (c.job === 'Director' || c.job === 'Creator') add(c, 'dir'); else if (c.department === 'Writing') add(c, 'wri'); });
+    var data = { items: Array.from(items.values()), keys: new Set(items.keys()), roles: roles };
+    state.personData[id] = data; delete state.personLoading[id];
+    return data;
+  }, function (e) { delete state.personLoading[id]; throw e; });
+  state.personLoading[id] = pr;
+  return pr;
+}
+async function openPerson(id, name) {
+  closeDialog($('#dlgDetail')); closeMenu(); closeRail();
+  clearQuery();
+  var sp = state.special = { kind: 'person', id: id, title: name, items: [], loading: true, tab: null, tabs: null };
+  refresh(); window.scrollTo(0, 0);
+  try {
+    var res = await Promise.all([tmdb('/person/' + id, { language: state.settings.lang }), loadPersonCredits(id)]);
+    if (state.special !== sp) return;
+    var info = res[0], data = res[1];
+    sp.title = info.name || name; sp.dept = info.known_for_department || '';
+    var tabs = { dir: [], act: [], wri: [] };
+    data.items.forEach(function (it) { var r = data.roles[it.k] || {}; ['dir', 'act', 'wri'].forEach(function (t) { if (r[t]) tabs[t].push(fromCatalog(it)); }); });
+    sp.tabs = tabs;
+    var pref = sp.dept === 'Directing' ? 'dir' : sp.dept === 'Writing' ? 'wri' : 'act';
+    sp.tab = tabs[pref].length ? pref : (['dir', 'act', 'wri'].filter(function (t) { return tabs[t].length; })[0] || 'act');
+    sp.items = tabs[sp.tab]; sp.loading = false;
+    refresh();
+    wantDetails(sp.items.slice(0, 150), 'lo');
+  } catch (e) {
+    if (e.fatal) { fatal(e); return; }
+    if (state.special === sp) { sp.loading = false; sp.error = e.message; refresh(); }
+  }
+}
+function addPersonFilter(id, name) {
+  if (!state.f.people.some(function (p) { return p.id === id; })) {
+    state.f.people.push({ id: id, name: String(name).slice(0, 80) });
+    if (state.f.people.length > 5) state.f.people.shift();
+  }
+  renderPeopleChips();
+  refresh();
+  loadPersonCredits(id).then(function () { refresh(); }, function (e) { if (e.fatal) fatal(e); else toast(e.message); });
+}
+var DEPT = { Directing: 'Dirección', Acting: 'Actuación', Writing: 'Guion', Production: 'Producción', Camera: 'Fotografía', Editing: 'Montaje', Sound: 'Sonido', Art: 'Arte' };
+var personSearch = debounce(async function (q) {
+  var box = $('#personAc');
+  if (q.length < 2) { box.hidden = true; return; }
+  try {
+    var d = await tmdb('/search/person', { query: q, language: state.settings.lang, include_adult: 'false' });
+    if ($('#personQ').value.trim() !== q) return;
+    var res = (d.results || []).slice(0, 7);
+    box.innerHTML = res.length ? res.map(function (p) {
+      var known = (p.known_for || []).slice(0, 2).map(function (k) { return k.title || k.name; }).filter(Boolean).join(', ');
+      return '<button class="ac-item" type="button" role="option" data-pid="' + (+p.id) + '" data-pname="' + esc(p.name) + '"><b>' + esc(p.name) + '</b><span>' + esc([DEPT[p.known_for_department] || p.known_for_department, known].filter(Boolean).join(' · ')) + '</span></button>';
+    }).join('') : '<p class="ac-empty">No encontré a nadie con ese nombre.</p>';
+    box.hidden = false;
+  } catch (e) { if (e.fatal) fatal(e); }
+}, 300);
+
+/* ---------- barra de vistas especiales ---------- */
+function renderSpecialBar() {
+  var bar = $('#specialBar'), sp = state.special;
+  bar.hidden = !sp || sp.kind === 'search' || !!sp.error;
+  if (bar.hidden) { bar.innerHTML = ''; return; }
+  if (sp.kind === 'person') {
+    var labels = { dir: 'Dirección', act: 'Actuación', wri: 'Guion' };
+    var tabs = sp.tabs ? ['dir', 'act', 'wri'].filter(function (t) { return sp.tabs[t].length; }) : [];
+    bar.innerHTML = (tabs.length > 1 ? '<div class="seg" role="group" aria-label="Rol">' + tabs.map(function (t) { return '<button type="button" data-ptab="' + t + '" aria-pressed="' + (sp.tab === t) + '">' + labels[t] + ' <span class="n">' + sp.tabs[t].length + '</span></button>'; }).join('') + '</div>' : '') +
+      '<span class="grow"></span>' + (sp.loading ? '' : '<button class="btn" type="button" data-pfilter>Filtrar mi cartelera por ' + esc(sp.title) + '</button>');
+  } else if (sp.kind === 'reco') {
+    bar.innerHTML = '<p class="seeds">A partir de ' + sp.seeds.map(function (s) { return '<b>' + esc(s.t) + '</b>'; }).join(', ') + '</p><span class="grow"></span>' +
+      (sp.loading ? '' : '<button class="btn btn-accent" type="button" data-mkradio>Guardar como radio</button>');
+  }
+}
+
+/* ---------- recomendaciones ----------
+   Para cada semilla junta candidatos de varias fuentes de TMDB (sus recomendaciones,
+   títulos similares, la obra de su director y pelis que comparten palabras clave)
+   y los puntúa: primero género, después temas y director, al final época y calidad. */
+async function seedInfo(seed) {
+  var c = state.seedCache[seed.k];
+  if (c && Date.now() - c.at < DAY) return c;
+  var lang = state.settings.lang, type = seed.type;
+  var d = await tmdb('/' + type + '/' + seed.id, { language: lang, append_to_response: 'keywords,credits,recommendations,similar,external_ids,watch/providers' });
+  state.details[seed.k] = liteFromFull(d, type); saveCachesSoon();
+  var kws = ((type === 'movie' ? dig(d, 'keywords.keywords') : dig(d, 'keywords.results')) || [])
+    .filter(function (k) { var n = String(k.name || '').toLowerCase(); return n && !KW_STOP.has(n) && n.indexOf('based on') !== 0; }).slice(0, 8);
+  var dirs = (type === 'movie' ? (dig(d, 'credits.crew') || []).filter(function (x) { return x.job === 'Director'; }) : (d.created_by || [])).slice(0, 2);
+  var date = d.release_date || d.first_air_date || '';
+  var info = { at: Date.now(), k: seed.k, type: type, y: parseInt(date.slice(0, 4), 10) || null, genres: (d.genres || []).map(function (g) { return g.id; }), kws: kws.map(function (k) { return { id: k.id, name: String(k.name) }; }), dirs: dirs.map(function (x) { return { id: x.id, name: String(x.name) }; }) };
+  var cands = new Map();
+  var add = function (r, t, tag) {
+    if (!r || !r.id || r.adult) return;
+    var k = itemKey(t, r.id); if (k === seed.k) return;
+    var c2 = cands.get(k); if (!c2) { c2 = { it: norm(r, t), tags: {} }; cands.set(k, c2); }
+    c2.tags[tag] = 1;
+  };
+  (dig(d, 'recommendations.results') || []).forEach(function (r) { add(r, type, 'rec'); });
+  (dig(d, 'similar.results') || []).forEach(function (r) { add(r, type, 'sim'); });
+  var soft = function (e) { if (e && e.fatal) throw e; };
+  var jobs = [tmdb('/' + type + '/' + seed.id + '/recommendations', { language: lang, page: 2 }).then(function (r) { (r.results || []).forEach(function (x) { add(x, type, 'rec'); }); }, soft)];
+  info.dirs.forEach(function (p) {
+    jobs.push(loadPersonCredits(p.id).then(function (data) { data.items.forEach(function (it) { if ((data.roles[it.k] || {}).dir) add({ id: it.id, title: it.t, original_title: it.ot, release_date: it.y ? it.y + '-01-01' : '', genre_ids: it.g, vote_average: it.v, vote_count: it.vc, popularity: it.pop, poster_path: it.p }, it.type, 'dir:' + p.name); }); }, soft));
+  });
+  info.kws.forEach(function (kw) {
+    jobs.push(tmdb('/discover/' + type, { with_keywords: kw.id, sort_by: 'vote_count.desc', 'vote_count.gte': type === 'movie' ? 60 : 20, include_adult: 'false', language: lang }).then(function (r) { (r.results || []).forEach(function (x) { add(x, type, 'kw:' + kw.name); }); }, soft));
+  });
+  if (info.genres.length && info.kws.length) {
+    jobs.push(tmdb('/discover/' + type, { with_genres: info.genres.slice(0, 2).join(','), with_keywords: info.kws.slice(0, 4).map(function (k) { return k.id; }).join('|'), sort_by: 'vote_average.desc', 'vote_count.gte': type === 'movie' ? 300 : 80, include_adult: 'false', language: lang }).then(function (r) { (r.results || []).forEach(function (x) { add(x, type, 'gk'); }); }, soft));
+  }
+  await Promise.all(jobs);
+  info.cands = Array.from(cands.values()).map(function (x) { return { it: x.it, tags: Object.keys(x.tags) }; });
+  state.seedCache[seed.k] = info;
+  return info;
+}
+function scoreCand(c, info) {
+  var g = c.it.g || [], sg = info.genres;
+  var inter = g.filter(function (x) { return sg.indexOf(x) >= 0; }).length;
+  var union = new Set(g.concat(sg)).size || 1;
+  var genre = 0.6 * (inter / union) + 0.4 * (sg.length && g.indexOf(sg[0]) >= 0 ? 1 : 0);
+  var kw = c.tags.filter(function (t) { return t.indexOf('kw:') === 0; }).map(function (t) { return t.slice(3); });
+  var dir = c.tags.filter(function (t) { return t.indexOf('dir:') === 0; }).map(function (t) { return t.slice(4); })[0] || null;
+  var gk = c.tags.indexOf('gk') >= 0, rec = c.tags.indexOf('rec') >= 0, sim = c.tags.indexOf('sim') >= 0;
+  var theme = Math.min(1, kw.length / 3 + (gk ? 0.34 : 0));
+  var recS = Math.min(1, (rec ? 0.7 : 0) + (sim ? 0.3 : 0));
+  var era = c.it.y && info.y ? 1 - Math.min(1, Math.abs(c.it.y - info.y) / 40) : 0.5;
+  var q = Math.max(0, Math.min(1, ((c.it.v || 0) - 5.5) / 3)) * Math.min(1, (c.it.vc || 0) / 400);
+  var s = 0.32 * genre + 0.24 * theme + 0.16 * (dir ? 1 : 0) + 0.14 * recS + 0.06 * era + 0.08 * q;
+  if (!inter) s *= 0.5;
+  if ((c.it.vc || 0) < 30) s *= 0.6;
+  return { s: s, kw: kw, dir: dir, rec: rec || sim, genre: inter > 0 };
+}
+async function recommend(seeds, progress) {
+  var infos = [];
+  for (var i = 0; i < seeds.length; i++) {
+    if (progress) progress('analizando ' + seeds[i].t + '…');
+    infos.push(await seedInfo(seeds[i]));
+  }
+  var seedKeys = new Set(seeds.map(function (s) { return s.k; }));
+  var agg = new Map();
+  infos.forEach(function (info) {
+    info.cands.forEach(function (c) {
+      if (seedKeys.has(c.it.k)) return;
+      var r = scoreCand(c, info);
+      var a = agg.get(c.it.k);
+      if (!a) { a = { it: c.it, sum: 0, hits: 0, kws: {}, dirs: {}, rec: false, genre: false }; agg.set(c.it.k, a); }
+      a.sum += r.s; if (r.s > 0.35) a.hits++;
+      r.kw.forEach(function (k) { a.kws[k] = 1; }); if (r.dir) a.dirs[r.dir] = 1; if (r.rec) a.rec = true; if (r.genre) a.genre = true;
+    });
+  });
+  var out = [];
+  agg.forEach(function (a) {
+    var parts = [], dirs = Object.keys(a.dirs), kws = Object.keys(a.kws);
+    if (dirs.length) parts.push('De ' + dirs.slice(0, 2).join(' y '));
+    if (kws.length) parts.push('Temas: ' + kws.slice(0, 3).join(', '));
+    if (a.rec) parts.push('TMDB la recomienda');
+    if (!parts.length && a.genre) parts.push('Mismo género');
+    out.push({ it: fromCatalog(a.it), match: a.sum / infos.length + 0.08 * Math.max(0, a.hits - 1), why: parts.join(' · ') });
+  });
+  out.sort(function (x, y) { return y.match - x.match; });
+  return out.slice(0, 120);
+}
+async function openReco(seeds) {
+  seeds = seeds.filter(Boolean).slice(0, 8);
+  if (!seeds.length) return;
+  closeDialog($('#dlgDetail')); closeMenu(); closeRail();
+  var title = seeds.length === 1 ? 'Parecidas a ' + seeds[0].t : 'Parecidas a tu selección';
+  clearQuery();
+  var sp = state.special = { kind: 'reco', title: title, seeds: seeds, items: [], meta: new Map(), loading: true };
+  state.ui.sortReco = 'match';
+  refresh(); window.scrollTo(0, 0);
+  try {
+    var recs = await recommend(seeds, function (msg) { if (state.special === sp) { sp.progress = msg; renderCount(); } });
+    if (state.special !== sp) return;
+    sp.items = recs.map(function (r) { sp.meta.set(r.it.k, { match: r.match, why: r.why }); return r.it; });
+    sp.loading = false;
+    refresh();
+    wantDetails(sp.items.slice(0, 80), 'lo');
+  } catch (e) {
+    if (e.fatal) { fatal(e); return; }
+    if (state.special === sp) { sp.loading = false; sp.error = e.message; refresh(); }
+  }
+}
+
+/* ---------- radios ---------- */
+function isRadio(l) { return !!l && Object.keys(l.seeds || {}).length > 0; }
+function radioContext() { if (state.special || state.ui.view !== 'lists') return null; var l = getList(state.ui.list); return isRadio(l) ? l : null; }
+async function radioFill(l, n) {
+  var seeds = Object.keys(l.seeds).sort(function (a, b) { return l.seeds[a] - l.seeds[b]; }).map(resolveItem).filter(Boolean).slice(-8);
+  var recs = await recommend(seeds);
+  var t = now(), added = 0;
+  for (var i = 0; i < recs.length && added < n; i++) {
+    var it = recs[i].it, k = it.k;
+    if (isIn(l, k) || l.nos[k] || l.seeds[k] || isSeen(k) || (l.rms[k] || 0) > 0) continue;
+    l.adds[k] = t - added; state.user.items[k] = snapshot(it); added++;
+  }
+  touchUser();
+  return added;
+}
+async function createRadio(seeds, name) {
+  seeds = seeds.filter(Boolean).slice(0, 8);
+  if (!seeds.length) return;
+  closeDialog($('#dlgDetail'));
+  var l = createList(String(name || ('Radio ' + seeds[0].t + (seeds.length > 1 ? ' +' + (seeds.length - 1) : ''))).slice(0, 40));
+  var t = now();
+  seeds.forEach(function (s) { l.seeds[s.k] = t; state.user.items[s.k] = snapshot(s); });
+  state.special = null; state.ui.view = 'lists'; state.ui.list = l.id; state.listEdit = null;
+  state.radioBusy = true; refresh(); window.scrollTo(0, 0);
+  toast('Armando la radio…');
+  try { var n = await radioFill(l, 20); toast(n ? 'Radio lista: ' + n + ' títulos.' : 'No encontré parecidas nuevas.'); }
+  catch (e) { if (e.fatal) fatal(e); else toast(e.message); }
+  finally { state.radioBusy = false; refresh(true); }
+}
+async function radioMore(l) {
+  if (state.radioBusy) return;
+  state.radioBusy = true; renderListbar();
+  try { var n = await radioFill(l, 10); toast(n ? 'Sumé ' + n + ' a la radio.' : 'No encontré parecidas nuevas. Probá sumar otra semilla.'); }
+  catch (e) { if (e.fatal) fatal(e); else toast(e.message); }
+  finally { state.radioBusy = false; refresh(true); }
 }
 
 /* ---------- sync (GitHub Gist) ---------- */
@@ -1200,6 +1594,7 @@ async function start() {
   try {
     await loadGenres();
     renderGenreChips();
+    state.f.people.forEach(function (p) { loadPersonCredits(p.id).then(function () { refresh(true); }, function () {}); });
     if (state.ui.view === 'catalog') await ensureCatalog(state.ui.type);
   } catch (e) {
     if (e.fatal) { fatal(e); return; }
@@ -1214,16 +1609,22 @@ function showOnboarding() {
 }
 
 function setView(v) {
-  if (state.ui.view === v) return;
-  state.ui.view = v; state.global = null; closeRail();
+  if (state.ui.view === v && !state.special) return;
+  state.ui.view = v; state.special = null; closeRail();
   renderRail(); refresh(); window.scrollTo(0, 0);
   if (v === 'catalog') loadCatalogAndRefresh(state.ui.type);
 }
 function setType(t) {
   if (state.ui.type === t) return;
-  state.ui.type = t; state.global = null;
+  state.ui.type = t; state.special = null;
   renderGenreChips(); refresh(); window.scrollTo(0, 0);
   loadCatalogAndRefresh(t);
+}
+function setSource(s) {
+  if (state.ui.source === s) return;
+  state.ui.source = s; state.special = null;
+  refresh(); window.scrollTo(0, 0);
+  if (s === 'mine') loadCatalogAndRefresh(state.ui.type);
 }
 function loadCatalogAndRefresh(t) {
   if (!state.settings.tmdbKey || state.fatal) return;
@@ -1236,6 +1637,11 @@ function clearFilters() {
   var keepSeen = state.f.hideSeen;
   state.f = defaultFilters(); state.f.hideSeen = keepSeen;
   renderRail(); refresh();
+}
+function radioAction(kind, it) {
+  var l = radioContext(); if (!l) return;
+  if (kind === 'seed') { l.seeds[it.k] = now(); state.user.items[it.k] = snapshot(it); touchUser(); toast('Sumada como semilla. La próxima tanda la tiene en cuenta.'); renderDetail(); renderListbar(); }
+  if (kind === 'nope') { l.nos[it.k] = now(); l.rms[it.k] = now(); touchUser(); closeDialog($('#dlgDetail')); toast('Sacada de la radio. No vuelve a aparecer.'); refresh(true); }
 }
 
 function bind() {
@@ -1256,9 +1662,9 @@ function bind() {
 
   $('#viewSeg').addEventListener('click', function (e) { var b = e.target.closest('button[data-view]'); if (b) setView(b.dataset.view); });
   $('#typeSeg').addEventListener('click', function (e) { var b = e.target.closest('button[data-type]'); if (b) setType(b.dataset.type); });
-  $('#q').addEventListener('input', function (e) { state.q = e.target.value.trim(); if (state.global && state.global.q !== state.q) state.global = null; refreshSoon(); });
-  $('#q').addEventListener('keydown', function (e) { if (e.key === 'Enter' && state.ui.view === 'catalog' && state.q.length >= 2 && !state.filtered.length) globalSearch(state.q); });
-  $('#sort').addEventListener('change', function (e) { if (state.ui.view === 'lists') state.ui.sortLists = e.target.value; else state.ui.sortCatalog = e.target.value; refresh(); });
+  $('#q').addEventListener('input', function (e) { state.q = e.target.value.trim(); if (state.special && state.special.kind === 'search' && state.special.q !== state.q) state.special = null; refreshSoon(); });
+  $('#q').addEventListener('keydown', function (e) { if (e.key === 'Enter' && state.ui.view === 'catalog' && !state.special && state.q.length >= 2 && !state.filtered.length) globalSearch(state.q); });
+  $('#sort').addEventListener('change', function (e) { state.ui[sortKey()] = e.target.value; refresh(); });
   $('#pick').addEventListener('click', pickOne);
   $('#openSettings').addEventListener('click', function () { fillSettingsForm(); openDialog($('#dlgSettings')); });
   $('#openRail').addEventListener('click', openRail);
@@ -1267,8 +1673,37 @@ function bind() {
   $('#more').addEventListener('click', renderMore);
   $('#reflowBtn').addEventListener('click', function () { refresh(true); });
   $('#globalBtn').addEventListener('click', function (e) {
-    if (e.currentTarget.dataset.mode === 'back') { state.global = null; refresh(); }
+    if (e.currentTarget.dataset.mode === 'back') backFromSpecial();
     else if (state.q.length >= 2) globalSearch(state.q);
+  });
+
+  /* qué mostrar, personas y vistas especiales */
+  $('#sourceSeg').addEventListener('click', function (e) { var b = e.target.closest('[data-source]'); if (b) setSource(b.dataset.source); });
+  $('#onlyMine').addEventListener('change', function (e) {
+    state.f.onlyMine = e.target.checked;
+    if (state.f.onlyMine) wantDetails(currentPool().slice(0, 200), 'lo');
+    refresh();
+  });
+  $('#personQ').addEventListener('input', function (e) { personSearch(e.target.value.trim()); });
+  $('#personQ').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); var first = $('#personAc .ac-item'); if (first) first.click(); } if (e.key === 'Escape') $('#personAc').hidden = true; });
+  $('#personAc').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-pid]'); if (!b) return;
+    $('#personAc').hidden = true; $('#personQ').value = '';
+    addPersonFilter(+b.dataset.pid, b.dataset.pname);
+  });
+  $('#peopleChips').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-unperson]'); if (!b) return;
+    var id = +b.dataset.unperson;
+    state.f.people = state.f.people.filter(function (p) { return p.id !== id; });
+    renderPeopleChips(); refresh();
+  });
+  document.addEventListener('pointerdown', function (e) { if (!e.target.closest('.ac')) $('#personAc').hidden = true; });
+  $('#specialBar').addEventListener('click', function (e) {
+    var sp = state.special; if (!sp) return;
+    var tab = e.target.closest('[data-ptab]');
+    if (tab && sp.tabs) { sp.tab = tab.dataset.ptab; sp.items = sp.tabs[sp.tab]; refresh(); wantDetails(sp.items.slice(0, 150), 'lo'); return; }
+    if (e.target.closest('[data-pfilter]')) { var id = sp.id, name = sp.title; state.special = null; state.ui.view = 'catalog'; addPersonFilter(id, name); renderRail(); toast('Mostrando lo que hizo ' + name + '. Lo sacás desde Filtros.'); return; }
+    if (e.target.closest('[data-mkradio]')) { createRadio(sp.seeds); }
   });
 
   /* rail */
@@ -1321,6 +1756,7 @@ function bind() {
     if (t.closest('[data-global]')) { globalSearch(state.q); return; }
     if (t.closest('[data-go="catalog"]')) { setView('catalog'); return; }
     if (t.closest('[data-retry]')) { showBanner(''); start(); return; }
+    if (t.closest('[data-back]')) { backFromSpecial(); return; }
   });
 
   grid.addEventListener('click', function (e) {
@@ -1339,7 +1775,10 @@ function bind() {
     if (p) { state.ui.list = p.dataset.list; state.listEdit = null; state.confirmDelete = null; refresh(); return; }
     var tool = e.target.closest('[data-tool]');
     if (tool) {
-      var k = tool.dataset.tool;
+      var k = tool.dataset.tool, cur = getList(state.ui.list);
+      if (k === 'radio-more' && cur) { radioMore(cur); return; }
+      if (k === 'reco' && cur) { openReco(listKeys(cur).slice(0, 8).map(resolveItem)); return; }
+      if (k === 'radio-from' && cur) { createRadio(listKeys(cur).slice(0, 8).map(resolveItem), 'Radio ' + cur.name); return; }
       if (k === 'new' || k === 'rename') { state.listEdit = k; renderListbar(); }
       if (k === 'delete') {
         var l = getList(state.ui.list); if (!l || l.id === 'watchlist') return;
@@ -1385,8 +1824,17 @@ function bind() {
     var it = D.it;
     if (e.target.closest('[data-close]')) { closeDialog(dd); return; }
     if (e.target.closest('[data-repick]')) { pickOne(); return; }
+    var pb = e.target.closest('[data-person]');
+    if (pb) { openPerson(+pb.dataset.person, pb.dataset.pname); return; }
     var a = e.target.closest('[data-dact]');
-    if (a) { if (a.dataset.dact === 'watch') toggleList('watchlist', it); else toggleSeen(it); renderDetail(); updateCard(it.k); if (state.ui.view === 'lists') refreshSoon(); return; }
+    if (a) {
+      var act = a.dataset.dact;
+      if (act === 'reco') { openReco([it]); return; }
+      if (act === 'radio') { createRadio([it]); return; }
+      if (act === 'seed' || act === 'nope') { radioAction(act, it); return; }
+      if (act === 'watch') toggleList('watchlist', it); else toggleSeen(it);
+      renderDetail(); updateCard(it.k); if (state.ui.view === 'lists') refreshSoon(); return;
+    }
     var st = e.target.closest('[data-star]');
     if (st) { var n = +st.dataset.star; setStar(it, starOf(it.k) === n ? 0 : n); renderDetail(); updateCard(it.k); return; }
     var dl = e.target.closest('[data-dlist]');
@@ -1456,6 +1904,6 @@ function boot() {
   start();
 }
 
-if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') window.__cartelera = { state: state, refresh: refresh, scoreFor: scoreFor, mergeUsers: mergeUsers, normUser: normUser, contentKey: contentKey, listKeys: listKeys, pairUrl: pairUrl, syncNow: syncNow };
+if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') window.__cartelera = { state: state, refresh: refresh, scoreFor: scoreFor, recommend: recommend, openReco: openReco, openPerson: openPerson, allSig: allSig, mergeUsers: mergeUsers, normUser: normUser, contentKey: contentKey, listKeys: listKeys, pairUrl: pairUrl, syncNow: syncNow };
 boot();
 })();
