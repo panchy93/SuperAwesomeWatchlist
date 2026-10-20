@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="es-AR">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' https://image.tmdb.org; connect-src 'self' https://api.themoviedb.org https://www.omdbapi.com https://api.github.com https://gist.githubusercontent.com; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#141019">
+<meta name="description" content="Tu cartelera de Netflix, Prime Video, Disney+ y HBO Max en Argentina, con filtros y listas propias.">
+<title>Cartelera</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icons/favicon-64.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Cartelera">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800&family=Schibsted+Grotesk:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap">
+<link rel="stylesheet" href="styles.css">
+<script src="qr.js" defer></script>
+<script src="app.js" defer></script>
+</head>
+<body>
+
+<header class="top" id="top">
+  <div class="top-in">
+    <h1 class="brand">Cartelera</h1>
+    <div class="seg" role="group" aria-label="Sección" id="viewSeg">
+      <button type="button" data-view="catalog">Catálogo</button>
+      <button type="button" data-view="lists">Listas</button>
+    </div>
+    <div class="seg" role="group" aria-label="Tipo de título" id="typeSeg">
+      <button type="button" data-type="movie">Películas</button>
+      <button type="button" data-type="tv">Series</button>
+    </div>
+    <label class="search"><span class="sr">Buscar por título</span><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="q" type="search" placeholder="Buscar título" autocomplete="off" enterkeyhint="search"></label>
+    <button class="btn only-narrow" id="openRail" type="button"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 6h16M7 12h10M10 18h4"/></svg>Filtros <span class="badge" id="fcount" hidden></span></button>
+    <label class="sortwrap"><span class="sr">Ordenar por</span><select id="sort" class="sel"></select></label>
+    <button class="btn btn-accent" id="pick" type="button"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3"/><circle cx="9" cy="9" r="1.2" fill="currentColor"/><circle cx="15" cy="15" r="1.2" fill="currentColor"/><circle cx="15" cy="9" r="1.2" fill="currentColor"/><circle cx="9" cy="15" r="1.2" fill="currentColor"/></svg>Elegime una</button>
+    <button class="btn icon-btn" id="openSettings" type="button" aria-label="Ajustes" title="Ajustes"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
+  </div>
+  <div class="progress" id="progress" hidden><span></span></div>
+</header>
+
+<div class="layout" id="layout">
+  <aside class="rail" id="rail" aria-label="Filtros">
+    <div class="rail-head"><p class="rlabel">Filtros</p><button class="btn" id="closeRail" type="button">Listo</button></div>
+
+    <section class="rsec" id="secServices">
+      <p class="rlabel">Servicios</p>
+      <div class="svc-toggles" id="svcToggles"></div>
+    </section>
+
+    <section class="rsec">
+      <p class="rlabel">Rating mínimo</p>
+      <label class="sr" for="ratingSrc">Fuente del rating</label>
+      <select id="ratingSrc" class="inp"></select>
+      <div class="range-row">
+        <label class="sr" for="ratingMin">Valor mínimo</label>
+        <input id="ratingMin" type="range" min="0" max="10" step="0.1" value="0">
+        <output id="ratingVal" class="range-val" for="ratingMin">0</output>
+      </div>
+      <label class="check"><input type="checkbox" id="incUnknown">Incluir títulos sin ese dato</label>
+    </section>
+
+    <section class="rsec">
+      <p class="rlabel"><span>Géneros</span><span class="seg seg-sm" id="genreMode" role="group" aria-label="Cómo combinar géneros"><button type="button" data-mode="any">Alguno</button><button type="button" data-mode="all">Todos</button></span></p>
+      <p class="hint">Un toque incluye, otro toque excluye.</p>
+      <div class="chips" id="genreChips"></div>
+    </section>
+
+    <section class="rsec">
+      <p class="rlabel">Año</p>
+      <div class="pair">
+        <label class="field">Desde<input class="inp" id="yFrom" type="number" inputmode="numeric" min="1900" max="2100" placeholder="1920"></label>
+        <label class="field">Hasta<input class="inp" id="yTo" type="number" inputmode="numeric" min="1900" max="2100" placeholder="2026"></label>
+      </div>
+    </section>
+
+    <section class="rsec">
+      <p class="rlabel">Duración</p>
+      <label class="sr" for="maxRt">Duración máxima</label>
+      <select id="maxRt" class="inp">
+        <option value="0">Cualquiera</option>
+        <option value="30">Hasta 30 min</option>
+        <option value="45">Hasta 45 min</option>
+        <option value="60">Hasta 60 min</option>
+        <option value="90">Hasta 1 h 30</option>
+        <option value="100">Hasta 1 h 40</option>
+        <option value="120">Hasta 2 h</option>
+        <option value="150">Hasta 2 h 30</option>
+      </select>
+      <p class="hint">En series cuenta lo que dura un episodio.</p>
+    </section>
+
+    <section class="rsec">
+      <label class="check"><input type="checkbox" id="hideSeen">Ocultar lo que ya vi</label>
+      <button class="linkbtn" id="clearFilters" type="button">Limpiar filtros</button>
+    </section>
+
+    <section class="status" id="railStatus" aria-live="polite"></section>
+  </aside>
+
+  <main class="main" id="main">
+    <section class="onboard" id="onboard" hidden>
+      <h2>Tu <span>cartelera</span>, de tus cuatro servicios</h2>
+      <p>Netflix, Prime Video, Disney+ y HBO Max de Argentina en una sola grilla, con filtros por género y rating y listas propias. Para leer los catálogos necesito una clave gratuita de TMDB, la base de datos que usa JustWatch.</p>
+      <p><b>¿Ya la usás en otro dispositivo?</b> Ahí abrí Ajustes → Vincular otro dispositivo y escaneá el código con la cámara de este. Queda todo configurado, listas incluidas.</p>
+      <ol class="steps">
+        <li>Creá una cuenta en <a href="https://www.themoviedb.org/signup" target="_blank" rel="noopener noreferrer">themoviedb.org</a>.</li>
+        <li>Andá a <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener noreferrer">Configuración → API</a>, pedí una clave de uso personal y copiá el <b>Token de acceso de lectura</b> (o la Clave de la API).</li>
+        <li>Opcional: pedí una clave en <a href="https://www.omdbapi.com/apikey.aspx" target="_blank" rel="noopener noreferrer">omdbapi.com</a> (plan FREE) para sumar IMDb, Rotten Tomatoes y Metacritic. Llega por mail y hay que activarla con el link.</li>
+      </ol>
+      <form class="form" id="onboardForm" autocomplete="off">
+        <label class="field">Clave de TMDB<input class="inp" id="obTmdb" type="password" required placeholder="Token que empieza con eyJ o clave de 32 caracteres" spellcheck="false" autocomplete="off"></label>
+        <label class="field"><span>Clave de OMDb <small>(opcional)</small></span><input class="inp" id="obOmdb" type="password" placeholder="8 caracteres" spellcheck="false" autocomplete="off"></label>
+        <p class="hint">Las claves y tus listas quedan guardadas solo en este dispositivo.</p>
+        <p class="err" id="obErr" hidden></p>
+        <div><button class="btn btn-accent" type="submit" id="obSubmit">Armar mi cartelera</button></div>
+      </form>
+    </section>
+
+    <div class="listbar" id="listbar" hidden></div>
+    <div class="resbar" id="resbar">
+      <h2 class="count" id="count"></h2>
+      <div class="resbar-r"><span id="enrichNote"></span><button class="btn" id="reflowBtn" type="button" hidden>Reordenar con datos nuevos</button><button class="btn" id="globalBtn" type="button" hidden></button></div>
+    </div>
+    <div class="banner" id="banner" hidden></div>
+    <div class="grid" id="grid"></div>
+    <button class="btn more" id="more" type="button" hidden>Mostrar más</button>
+    <div class="empty" id="empty" hidden></div>
+    <footer class="foot" id="foot">Este producto usa la API de TMDB pero no está avalado ni certificado por TMDB. Disponibilidad en streaming provista por JustWatch a través de TMDB. Ratings de IMDb, Rotten Tomatoes y Metacritic vía OMDb.</footer>
+  </main>
+</div>
+
+<div class="veil" id="veil" hidden></div>
+
+<div class="menu" id="listMenu" role="menu" aria-label="Agregar a una lista" hidden>
+  <p class="menu-h">Agregar a</p>
+  <div id="menuItems"></div>
+  <form id="menuNew" autocomplete="off"><label class="sr" for="menuNewName">Nombre de la lista nueva</label><input class="inp" id="menuNewName" maxlength="40" placeholder="Lista nueva"><button class="btn" type="submit">Crear</button></form>
+</div>
+
+<dialog id="dlgDetail" aria-label="Ficha del título"><div id="detail"></div></dialog>
+
+<dialog id="dlgSettings" aria-labelledby="setTitle">
+  <form class="set" id="setForm" autocomplete="off">
+    <button class="dlg-x" type="button" data-close aria-label="Cerrar"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+    <h2 id="setTitle">Ajustes</h2>
+
+    <fieldset>
+      <legend>Sincronizar listas entre dispositivos</legend>
+      <p class="hint">Tus listas se guardan en un Gist secreto de tu cuenta de GitHub. Hace falta un token que solo pueda tocar Gists:</p>
+      <ol class="steps-sm">
+        <li>Abrí <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener noreferrer">github.com/settings/personal-access-tokens/new</a> (token de tipo Fine-grained).</li>
+        <li>Nombre: <span class="kbd">Cartelera</span>. Vencimiento: un año.</li>
+        <li>En <b>Permissions → Account permissions → Gists</b> elegí <b>Read and write</b>. Ningún otro permiso, ningún repositorio.</li>
+        <li>Generalo, copialo y pegalo acá abajo.</li>
+      </ol>
+      <label class="field">Token de GitHub<span class="pw"><input class="inp" id="sGh" type="password" spellcheck="false" autocomplete="off" placeholder="github_pat_…"><button class="btn" type="button" data-reveal="sGh">Ver</button></span></label>
+      <div class="row"><button class="btn btn-accent" type="button" id="syncNow">Conectar y sincronizar</button><button class="btn btn-ghost" type="button" id="syncOff" hidden>Desconectar este dispositivo</button></div>
+      <p class="sync-state" id="syncState" data-s="off">Sin sincronizar.</p>
+    </fieldset>
+
+    <fieldset id="pairSet">
+      <legend>Vincular otro dispositivo</legend>
+      <p class="hint" id="pairHint">Muestra un código QR con tus claves y la conexión a GitHub. Lo escaneás con la cámara del otro dispositivo y queda listo, sin tipear nada.</p>
+      <div class="row"><button class="btn" type="button" id="pairShow">Mostrar código QR</button></div>
+      <div class="pairbox" id="pairBox" hidden>
+        <div class="qr" id="pairQr"></div>
+        <p class="hint"><span class="warn">Este código contiene tus claves.</span> No le saques captura ni lo compartas. Se oculta solo en dos minutos. <button class="linkbtn" type="button" id="pairHide">Ocultar ahora</button></p>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Claves de los catálogos</legend>
+      <label class="field">TMDB<span class="pw"><input class="inp" id="sTmdb" type="password" spellcheck="false" autocomplete="off"><button class="btn" type="button" data-reveal="sTmdb">Ver</button></span></label>
+      <label class="field">OMDb (IMDb, Rotten Tomatoes, Metacritic)<span class="pw"><input class="inp" id="sOmdb" type="password" spellcheck="false" autocomplete="off" placeholder="Opcional"><button class="btn" type="button" data-reveal="sOmdb">Ver</button></span></label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Catálogo</legend>
+      <div class="grid2">
+        <label class="field">Idioma de títulos y sinopsis
+          <select class="inp" id="sLang">
+            <option value="es-MX">Español latinoamericano</option>
+            <option value="es-ES">Español de España</option>
+            <option value="en-US">Inglés</option>
+          </select>
+        </label>
+        <label class="field">Profundidad
+          <select class="inp" id="sDepth">
+            <option value="normal">Rápida: hasta 500 títulos por servicio</option>
+            <option value="full">Completa: hasta 3.000 por servicio</option>
+          </select>
+        </label>
+        <label class="field">Votos mínimos en TMDB (películas)
+          <input class="inp" id="sMinVotes" type="number" min="0" max="5000" step="10">
+        </label>
+        <label class="field">Tema
+          <select class="inp" id="sTheme">
+            <option value="system">Como el sistema</option>
+            <option value="dark">Oscuro</option>
+            <option value="light">Claro</option>
+          </select>
+        </label>
+      </div>
+      <p class="hint">Si cambiás idioma, profundidad o votos, el catálogo se vuelve a leer.</p>
+    </fieldset>
+
+    <fieldset>
+      <legend>Tus datos</legend>
+      <div class="row">
+        <button class="btn" type="button" id="exportBtn">Exportar listas</button>
+        <label class="btn" for="importFile">Importar listas</label><input id="importFile" type="file" accept="application/json,.json" class="sr">
+        <button class="btn btn-ghost" type="button" id="clearCache">Borrar caché del catálogo</button>
+      </div>
+    </fieldset>
+    <p class="err" id="setErr" hidden></p>
+    <div class="row"><button class="btn btn-accent" type="submit" id="saveSettings">Guardar</button><button class="btn btn-ghost" type="button" data-close>Cancelar</button></div>
+  </form>
+</dialog>
+
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>
