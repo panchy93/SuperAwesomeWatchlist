@@ -1,11 +1,11 @@
 # WatchListo
 
-Catálogo personal de Netflix, Prime Video, Disney+ y HBO Max en Argentina, con filtros por género, rating (TMDB, IMDb, Rotten Tomatoes, Metacritic), festivales curados por género y listas propias. Se instala como app desde el navegador.
+Catálogo personal de tus servicios de streaming en Argentina (Netflix, Prime Video, Disney+ y HBO Max de entrada; se suman los que tengas desde Perfil), con filtros por género, rating (TMDB, IMDb, Rotten Tomatoes, Metacritic), festivales curados por género y listas propias. Se instala como app desde el navegador.
 
 ## Seguridad
 
 - El repositorio no contiene ninguna clave. Las claves de TMDB, OMDb y el token de GitHub se guardan solo en el navegador de cada dispositivo.
-- La página tiene una política de seguridad de contenido estricta: no ejecuta scripts de terceros ni código embebido, y solo se conecta con TMDB, OMDb y la API de GitHub.
+- La página tiene una política de seguridad de contenido estricta: no ejecuta scripts de terceros ni código embebido, y solo se conecta con TMDB, OMDb, GitHub, Firebase y Torrentio. El único contenido externo embebido es el reproductor de tráileres de YouTube (dominio sin cookies, en un marco aislado).
 - Las listas se sincronizan en un Gist secreto. El token de GitHub necesita únicamente el permiso **Gists: Read and write**.
 - Si perdés un dispositivo, revocá el token en GitHub (Settings → Developer settings → Personal access tokens) y creá uno nuevo.
 
@@ -23,7 +23,7 @@ Las vistas y las estrellas afinan las recomendaciones y los festivales: 5★ y 4
 
 ## El acomodador
 
-"Elegime una" abre un asistente que pregunta qué tipo de título, con qué ganas, qué género, hace tres duelos entre títulos conocidos ("¿más esta o más aquella?") y pide época, duración y dónde verla. Con las respuestas arma un perfil de etiquetas de la curaduría, elige títulos base y usa el mismo motor de recomendaciones, que ya tiene en cuenta vistas y estrellas. Con varios títulos puntuados ofrece elegir "a ciegas" directo desde tu gusto, y sigue estando la opción de una al azar con los filtros del momento.
+El botón **Random** abre un asistente que pregunta qué tipo de título, con qué ganas, qué género, hace tres duelos entre títulos conocidos ("¿más esta o más aquella?") y pide época, duración y dónde verla. Con las respuestas arma un perfil de etiquetas de la curaduría, elige títulos base y usa el mismo motor de recomendaciones, que ya tiene en cuenta vistas y estrellas. Con varios títulos puntuados ofrece elegir "a ciegas" directo desde tu gusto, y sigue estando la opción de una al azar con los filtros del momento.
 
 ## De a dos
 
@@ -39,7 +39,7 @@ Para elegir con otra persona. Cada uno puede generar un link con su gusto (lo qu
 - **Botón Atrás:** cada ficha, diálogo o vista especial suma una entrada al historial, así Atrás vuelve a la pantalla anterior (por ejemplo, de "Más como esta" a la ficha de la que venías). En la pantalla principal hay que tocarlo dos veces seguidas para salir.
 - **Rumbo de un festival:** cada festival muestra las etiquetas de sus pelis base. Sacar una oculta los títulos en los que lo sacado pesa más que lo que queda (por ejemplo, sin "Bélico" se van las de guerra y acción y quedan los dramas de guerra) y orienta lo que se suma después. Es reversible y se sincroniza con la lista.
 - **Perfil:** vistas recientes, listas y festivales, watch buddies y un resumen de tu gusto (género, etiquetas, tono y década favoritas, horas en pantalla, promedio, joya escondida, opinión impopular).
-- **En el celu:** barra inferior con Catálogo, Listas, Elegime, Festivales y Perfil; Ajustes está dentro de Perfil.
+- **En el celu:** barra inferior con Catálogo, Listas, Random, Festivales y Perfil; Ajustes está dentro de Perfil.
 
 ## Cuentas (Firebase, por invitación)
 
@@ -65,3 +65,22 @@ Abierta desde el navegador de un celular, la app pide instalarse primero (en And
 ## Personas
 
 Las fichas muestran dirección, guion, música y fotografía. Cada nombre abre su filmografía por rol y desde ahí se arma una **Retrospectiva** (su obra, lo mejor primero) o un **Festival en su onda** (arranca de sus mejores títulos y se completa con parecidos).
+
+## Tus servicios
+
+En **Perfil → Tus servicios** se prenden los que tenés, de la lista de servicios por suscripción que JustWatch informa para Argentina (las variantes con anuncios se agrupan, las tiendas de alquiler y los canales no aparecen). El catálogo, los filtros, el acomodador y los badges usan solo esos. La elección viaja con tus datos (Gist o cuenta), así que vale en todos tus dispositivos.
+
+## Stremio (vía Torrentio)
+
+Con Stremio prendido en Tus servicios, cada título que aparece en pantalla se consulta en Torrentio, el addon de Stremio. Si tiene fuentes, la tarjeta muestra **Stremio** con la mejor calidad (y **LAT** si hay audio latino) y la ficha detalla calidad, HDR o Dolby Vision, audio latino, castellano o multiaudio, y botones para abrir en Stremio. Si no hay nada, no se muestra. Las consultas van de a dos, solo para lo visible, y quedan guardadas unos días en el dispositivo. Torrentio ve qué títulos consultás y desde qué IP; se apaga con el mismo botón.
+
+Idioma y calidad de Netflix, Prime y los demás: TMDB no lo informa. La ficha tiene un link a JustWatch para revisarlo ahí.
+
+## Ocultar lo que no te interesa
+
+**No me interesa** (en el + de cada póster, en la ficha o en los resultados del acomodador) saca un título del catálogo, las recomendaciones, los festivales y el acomodador. Cuenta como un "no" suave para tu perfil de gusto. Las ocultas quedan en **Listas → Ocultas**, desde donde se vuelven a mostrar. Se sincronizan como el resto de tus datos.
+
+## Ficha
+
+- **Tráiler:** se ve en la misma ficha (miniatura con play). Sigue andando aunque puntúes o sumes a una lista, y se corta al cerrar.
+- **Nueva lista:** en "Tus listas" de la ficha, **+ Nueva lista** crea una lista con ese título adentro.

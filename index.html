@@ -2,7 +2,7 @@
 <html lang="es-AR">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' https://www.gstatic.com https://apis.google.com; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' https://image.tmdb.org; connect-src 'self' https://api.themoviedb.org https://www.omdbapi.com https://api.github.com https://gist.githubusercontent.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://www.googleapis.com; frame-src https://watchlisto-de547.firebaseapp.com; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' https://www.gstatic.com https://apis.google.com; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' https://image.tmdb.org https://i.ytimg.com; connect-src 'self' https://api.themoviedb.org https://www.omdbapi.com https://api.github.com https://gist.githubusercontent.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://www.googleapis.com https://torrentio.strem.fun; frame-src https://watchlisto-de547.firebaseapp.com https://www.youtube-nocookie.com; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
 <meta name="referrer" content="no-referrer">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark light">
@@ -73,7 +73,7 @@
         <button type="button" data-source="all">Todo el cine</button>
       </div>
       <div class="svc-toggles" id="svcToggles"></div>
-      <p class="hint" id="allHint" hidden>Busca en todo TMDB. Cada tarjeta dice si está en tus servicios; lo que no, lo abrís en Stremio.</p>
+      <p class="hint" id="allHint" hidden>Busca en todo TMDB. Cada tarjeta dice en cuáles de tus servicios está, y si lo tenés prendido, si está en Stremio.</p>
       <label class="check" id="onlyMineWrap" hidden><input type="checkbox" id="onlyMine">Solo lo que está en mis servicios</label>
     </section>
 
@@ -187,6 +187,7 @@
   <p class="menu-h">Agregar a</p>
   <div id="menuItems"></div>
   <form id="menuNew" autocomplete="off"><label class="sr" for="menuNewName">Nombre de la lista nueva</label><input class="inp" id="menuNewName" maxlength="40" placeholder="Lista nueva"><button class="btn" type="submit">Crear</button></form>
+  <button class="mi mi-hide" id="menuHide" type="button" role="menuitem">No me interesa · ocultar</button>
 </div>
 
 <dialog id="dlgDetail" aria-label="Ficha del título"><div id="detail"></div></dialog>
