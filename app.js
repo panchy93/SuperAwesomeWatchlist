@@ -1,4 +1,4 @@
-/* Cartelera: app principal. Sin dependencias externas. */
+/* WatchListo (antes Cartelera): app principal. Sin dependencias externas. */
 (function () {
 'use strict';
 
@@ -815,7 +815,7 @@ function renderCount() {
       el.innerHTML = ready ? nf.format(A.totalResults || n) + ' ' + noun(state.ui.type, A.totalResults || n) + '<small>en todo el cine</small>' : 'Todo el cine<small>buscando…</small>';
     }
   } else {
-    if (!state.catalogs[state.ui.type]) { el.innerHTML = state.fatal ? 'Cartelera' : 'Armando tu cartelera<small>la primera vez tarda un poco</small>'; return; }
+    if (!state.catalogs[state.ui.type]) { el.innerHTML = state.fatal ? 'WatchListo' : 'Armando tu cartelera<small>la primera vez tarda un poco</small>'; return; }
     el.innerHTML = nf.format(n) + ' ' + noun(state.ui.type, n) + '<small>en tus servicios</small>';
   }
   if (state.q && state.q.length >= 2) { gb.hidden = false; gb.textContent = 'Buscar «' + state.q + '» en todo TMDB'; gb.dataset.mode = 'search'; }
@@ -1272,11 +1272,18 @@ function loadCuraduria() {
       [f.t, f.ot].filter(Boolean).forEach(function (t) { byKey.set(curNorm(t) + '|' + f.y + '|' + (f.tv ? 't' : 'm'), f); });
     });
     byId.forEach(function (f) { (f.rel || []).forEach(function (r) { if (byId.has(r)) { link(f.id, r); link(r, f.id); } }); });
-    CUR = { labels: j.labels, byKey: byKey, byId: byId, rel: rel, films: Array.from(byId.values()) };
+    var byTmdb = new Map();
+    Object.keys(curMap).forEach(function (id) { var c = curMap[id]; if (c && c.k && byId.has(id)) byTmdb.set(c.k, byId.get(id)); });
+    var secs = j.labels.sec || {};
+    var groups = (Array.isArray(j.groups) ? j.groups : []).filter(function (g) { return Array.isArray(g) && typeof g[0] === 'string' && Array.isArray(g[1]); })
+      .map(function (g) { return [g[0], g[1].filter(function (x) { return typeof x === 'string' && secs[x]; })]; });
+    if (!groups.length) groups = [['Secciones', Object.keys(secs)]];
+    CUR = { labels: j.labels, groups: groups, byKey: byKey, byId: byId, byTmdb: byTmdb, rel: rel, films: Array.from(byId.values()) };
   }).catch(function () {});
 }
 function curFind(it) {
   if (!CUR || !it) return null;
+  if (it.k && CUR.byTmdb.has(it.k)) return CUR.byTmdb.get(it.k);
   var tp = it.type === 'tv' ? 't' : 'm', y = +it.y;
   var names = [it.ot, it.t].filter(Boolean).map(curNorm), ys = y ? [y, y - 1, y + 1] : [];
   for (var i = 0; i < names.length; i++) for (var j = 0; j < ys.length; j++) { var f = CUR.byKey.get(names[i] + '|' + ys[j] + '|' + tp); if (f) return f; }
@@ -1305,18 +1312,74 @@ async function curResolve(f) {
   var r = await find(f.ot || f.t, true) || (f.ot ? await find(f.t, true) : null) || await find(f.ot || f.t, false);
   var it = r ? cleanSnap(norm(r, type), itemKey(type, r.id)) : null;
   curMap[f.id] = it || { none: 1 };
+  if (it && CUR) CUR.byTmdb.set(it.k, f);
   saveCurMapSoon();
   return it;
 }
-async function curSectionSeeds(sec, n) {
+/* las de una sección, primero las más conectadas (las que más parientes tienen) */
+function curSectionFilms(sec) {
   var films = CUR.films.filter(function (f) { return f.sec === sec; });
-  films.sort(function (a, b) { return (CUR.rel.get(b.id) || new Set()).size - (CUR.rel.get(a.id) || new Set()).size; });
+  return films.sort(function (a, b) { return (CUR.rel.get(b.id) || new Set()).size - (CUR.rel.get(a.id) || new Set()).size; });
+}
+async function curSectionSeeds(sec, n) {
+  var films = curSectionFilms(sec);
   var seeds = [];
   for (var i = 0; i < films.length && seeds.length < n; i++) {
     var it = await curResolve(films[i]);
     if (it && !isSeen(it.k)) seeds.push(it);
   }
   return seeds;
+}
+
+/* ---------- festivales por género (navegador de secciones) ---------- */
+var LOCAL_SECS = ['argentino', 'latam', 'espanol'];
+function curShownTitle(f) {
+  var c = curMap[f.id];
+  if (c && !c.none && c.t) return c.t;
+  if (f.ot && LOCAL_SECS.indexOf(f.sec) >= 0 && /^[\u0000-\u024F]+$/.test(f.ot)) return f.ot;
+  return f.t;
+}
+function festName(sec) { return ('Festival ' + (CUR.labels.sec[sec] || sec)).slice(0, 40); }
+function festList(sec) { var n = festName(sec); return visibleLists().filter(function (l) { return l.name === n && isRadio(l); })[0] || null; }
+function renderFest() {
+  var body = $('#festBody'), nav = $('#festNav');
+  if (!CUR) { nav.innerHTML = ''; body.innerHTML = '<p class="hint">No pude cargar la curaduría. Revisá la conexión y probá de nuevo.</p>'; return; }
+  var L = CUR.labels.sec, counts = {};
+  CUR.films.forEach(function (f) { counts[f.sec] = (counts[f.sec] || 0) + 1; });
+  var groups = CUR.groups.map(function (g) { return [g[0], g[1].filter(function (x) { return counts[x]; })]; }).filter(function (g) { return g[1].length; });
+  nav.innerHTML = groups.map(function (g, i) { return '<button type="button" class="pchip" data-fgrp="' + i + '">' + esc(g[0]) + '</button>'; }).join('');
+  body.innerHTML = '<p class="hint">Secciones armadas a mano. Elegí una y programo el festival con sus títulos más representativos, más los parecidos que encuentre en TMDB.</p>' +
+    groups.map(function (g, i) {
+      return '<section class="fest-g" id="fg' + i + '"><h3>' + esc(g[0]) + '</h3><div class="fest-secs">' + g[1].map(function (x) {
+        var sample = curSectionFilms(x).slice(0, 4).map(curShownTitle).join(' · ');
+        var on = festList(x);
+        return '<button type="button" class="fsec" data-fsec="' + esc(x) + '"><span class="fsec-h"><span class="fsec-n">' + esc(L[x]) + '</span><span class="fsec-c">' + counts[x] + '</span></span>' +
+          '<span class="fsec-s">' + esc(sample) + '</span>' + (on ? '<span class="fsec-on">Ya lo armaste · abrir</span>' : '') + '</button>';
+      }).join('') + '</div></section>';
+    }).join('');
+}
+function openFest() {
+  var d = $('#dlgFest');
+  (CUR ? Promise.resolve() : loadCuraduria()).then(function () { renderFest(); openDialog(d); d.scrollTop = 0; });
+}
+function startSectionFestival(sec, btn) {
+  if (!CUR || !btn || btn.disabled) return;
+  var ex = festList(sec);
+  if (ex) {
+    closeDialog($('#dlgFest')); closeDialog($('#dlgDetail'));
+    state.special = null; state.ui.view = 'lists'; state.ui.list = ex.id; state.listEdit = null;
+    refresh(); window.scrollTo(0, 0);
+    toast('Ya tenías este festival. Con «Sumar 10 más» le agregás títulos.');
+    return;
+  }
+  var prev = btn.innerHTML, restore = function () { btn.disabled = false; btn.removeAttribute('aria-busy'); btn.innerHTML = prev; };
+  btn.disabled = true; btn.setAttribute('aria-busy', 'true');
+  btn.innerHTML = btn.classList.contains('fsec') ? '<span class="fsec-n">Eligiendo las pelis base…</span>' : 'Eligiendo las pelis base…';
+  curSectionSeeds(sec, 6).then(function (seeds) {
+    if (!seeds.length) { toast('No encontré títulos de esa sección en TMDB.'); restore(); return; }
+    closeDialog($('#dlgFest'));
+    createRadio(seeds, festName(sec));
+  }, function (err) { restore(); if (err && err.fatal) fatal(err); else toast(err.message); });
 }
 
 /* ---------- recomendaciones ----------
@@ -1496,7 +1559,7 @@ async function gh(path, opts) {
   catch (e) { throw AppError('gh-net', 'Sin conexión con GitHub. Tus cambios quedan guardados y se suben cuando vuelva la conexión.'); }
   if (res.status === 401) throw AppError('gh-auth', 'GitHub rechazó el token. Puede estar vencido o mal copiado.');
   if (res.status === 403) throw AppError('gh-perm', 'El token no tiene permiso sobre Gists. Revisá que tenga Gists: Read and write.');
-  if (res.status === 404) throw AppError('gh-404', 'No encontré el Gist de Cartelera con este token.');
+  if (res.status === 404) throw AppError('gh-404', 'No encontré el Gist de WatchListo con este token.');
   if (!res.ok) throw AppError('gh', 'GitHub respondió con error ' + res.status + '.');
   return res.json();
 }
@@ -1509,7 +1572,7 @@ async function findOrCreateGist() {
     if (!list || list.length < 100) break;
   }
   var files = {}; files[GIST_FILE] = { content: JSON.stringify(state.user) };
-  var g = await gh('/gists', { method: 'POST', body: JSON.stringify({ description: 'Cartelera: mis listas (no borrar)', public: false, files: files }) });
+  var g = await gh('/gists', { method: 'POST', body: JSON.stringify({ description: 'WatchListo: mis listas (no borrar)', public: false, files: files }) });
   state.settings.gistId = g.id; saveSettings();
   return 'created';
 }
@@ -1585,7 +1648,7 @@ function inviteCopy() {
 }
 function inviteQr() {
   if (!state.settings.tmdbKey) { toast('Primero cargá la clave de TMDB.'); return; }
-  try { $('#inviteQrBox').innerHTML = window.CarteleraQR.toSvg(inviteUrl(), { label: 'Código de invitación a Cartelera' }); $('#inviteBox').hidden = false; }
+  try { $('#inviteQrBox').innerHTML = window.CarteleraQR.toSvg(inviteUrl(), { label: 'Código de invitación a WatchListo' }); $('#inviteBox').hidden = false; }
   catch (e) { toast('No pude generar el código.'); }
 }
 var pairTimer;
@@ -1612,7 +1675,7 @@ function readPairHash() {
   if (parts[4]) s.gistId = parts[4];
   if (['es-MX', 'es-ES', 'en-US'].indexOf(parts[5]) >= 0) s.lang = parts[5];
   saveSettings();
-  toast(parts[3] ? 'Dispositivo vinculado. Trayendo tus listas…' : '¡Listo! Ya tenés tu Cartelera. Tus listas se guardan en este dispositivo.');
+  toast(parts[3] ? 'Dispositivo vinculado. Trayendo tus listas…' : '¡Listo! Ya tenés tu WatchListo. Tus listas se guardan en este dispositivo.');
   return true;
 }
 
@@ -1632,7 +1695,7 @@ function fillSettingsForm() {
   $('#pairShow').disabled = !ok;
   $('#inviteCopy').disabled = !ok; $('#inviteQr').disabled = !ok;
   resetInvite();
-  $('#pairHint').textContent = ok ? 'Muestra un código QR con tus claves y la conexión a GitHub. Lo escaneás con la cámara del otro dispositivo y queda listo, sin tipear nada.' : 'Disponible cuando abrís Cartelera desde su dirección web, no como archivo suelto.';
+  $('#pairHint').textContent = ok ? 'Muestra un código QR con tus claves y la conexión a GitHub. Lo escaneás con la cámara del otro dispositivo y queda listo, sin tipear nada.' : 'Disponible cuando abrís WatchListo desde su dirección web, no como archivo suelto.';
   hidePair();
   $$('[data-reveal]').forEach(function (b) { var inp = document.getElementById(b.dataset.reveal); inp.type = 'password'; b.textContent = 'Ver'; });
   showSetErr('');
@@ -1679,7 +1742,7 @@ function exportUser() {
   var data = JSON.stringify({ app: 'cartelera', v: 2, exportedAt: new Date().toISOString(), user: state.user }, null, 2);
   var a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([data], { type: 'application/json' }));
-  a.download = 'cartelera-listas-' + today() + '.json';
+  a.download = 'watchlisto-listas-' + today() + '.json';
   document.body.appendChild(a); a.click();
   setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
 }
@@ -1693,7 +1756,7 @@ function importFile(file) {
       if (!u || !Array.isArray(u.lists)) throw new Error('bad');
       state.user = mergeUsers(state.user, normUser(u)); touchUser();
       toast('Listas importadas.'); refresh(true);
-    } catch (e) { toast('Ese archivo no parece una exportación de Cartelera.'); }
+    } catch (e) { toast('Ese archivo no parece una exportación de WatchListo.'); }
   };
   rd.readAsText(file);
 }
@@ -1942,15 +2005,7 @@ function bind() {
     var pb = e.target.closest('[data-person]');
     if (pb) { openPerson(+pb.dataset.person, pb.dataset.pname); return; }
     var cs = e.target.closest('[data-cursec]');
-    if (cs && CUR) {
-      var sec = cs.dataset.cursec, label = CUR.labels.sec[sec] || sec;
-      cs.disabled = true; cs.textContent = 'Eligiendo las pelis base…';
-      curSectionSeeds(sec, 6).then(function (seeds) {
-        if (!seeds.length) { toast('No encontré pelis de esa sección en TMDB.'); cs.disabled = false; cs.textContent = 'Armar festival: ' + label; return; }
-        createRadio(seeds, 'Festival ' + label);
-      }, function (err) { if (err && err.fatal) fatal(err); else toast(err.message); cs.disabled = false; cs.textContent = 'Armar festival: ' + label; });
-      return;
-    }
+    if (cs) { startSectionFestival(cs.dataset.cursec, cs); return; }
     var a = e.target.closest('[data-dact]');
     if (a) {
       var act = a.dataset.dact;
@@ -1966,6 +2021,17 @@ function bind() {
     if (dl) { toggleList(dl.dataset.dlist, it); renderDetail(); if (state.ui.view === 'lists') refreshSoon(); }
   });
   dd.addEventListener('close', function () { state.detail = null; });
+
+  /* festivales */
+  $('#openFest').addEventListener('click', openFest);
+  var df = $('#dlgFest');
+  df.addEventListener('click', function (e) {
+    if (e.target === df || e.target.closest('[data-close]')) { closeDialog(df); return; }
+    var g = e.target.closest('[data-fgrp]');
+    if (g) { var sec = document.getElementById('fg' + g.dataset.fgrp); if (sec) sec.scrollIntoView({ block: 'start', behavior: 'smooth' }); return; }
+    var b = e.target.closest('[data-fsec]');
+    if (b) startSectionFestival(b.dataset.fsec, b);
+  });
 
   /* settings dialog */
   var ds = $('#dlgSettings');
@@ -2033,6 +2099,6 @@ function boot() {
   start();
 }
 
-if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') window.__cartelera = { state: state, refresh: refresh, scoreFor: scoreFor, recommend: recommend, curFind: curFind, cur: function () { return CUR; }, inviteUrl: inviteUrl, openReco: openReco, openPerson: openPerson, allSig: allSig, mergeUsers: mergeUsers, normUser: normUser, contentKey: contentKey, listKeys: listKeys, pairUrl: pairUrl, syncNow: syncNow };
+if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') window.__cartelera = { state: state, refresh: refresh, scoreFor: scoreFor, recommend: recommend, curFind: curFind, cur: function () { return CUR; }, openFest: openFest, inviteUrl: inviteUrl, openReco: openReco, openPerson: openPerson, allSig: allSig, mergeUsers: mergeUsers, normUser: normUser, contentKey: contentKey, listKeys: listKeys, pairUrl: pairUrl, syncNow: syncNow };
 boot();
 })();

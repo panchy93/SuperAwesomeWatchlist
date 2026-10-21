@@ -1,7 +1,7 @@
 {
-  "name": "Cartelera",
-  "short_name": "Cartelera",
-  "description": "Tu cartelera de Netflix, Prime Video, Disney+ y HBO Max en Argentina, con filtros y listas propias.",
+  "name": "WatchListo",
+  "short_name": "WatchListo",
+  "description": "Netflix, Prime Video, Disney+ y HBO Max de Argentina en un solo lugar, con filtros, festivales y listas propias.",
   "lang": "es-AR",
   "id": "./",
   "start_url": "./",

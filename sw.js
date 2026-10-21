@@ -1,6 +1,6 @@
-/* Cartelera: service worker. Solo maneja archivos propios del sitio;
+/* WatchListo: service worker. Solo maneja archivos propios del sitio;
    nunca toca pedidos a TMDB, OMDb ni GitHub. */
-const CACHE = 'cartelera-v5';
+const CACHE = 'cartelera-v6';
 const ASSETS = [
   './', './index.html', './styles.css', './app.js', './qr.js', './manifest.webmanifest', './curaduria.json',
   './icons/icon-192.png', './icons/icon-512.png', './icons/maskable-512.png',

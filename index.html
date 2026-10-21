@@ -7,14 +7,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark light">
 <meta name="theme-color" content="#141019">
-<meta name="description" content="Tu cartelera de Netflix, Prime Video, Disney+ y HBO Max en Argentina, con filtros y listas propias.">
-<title>Cartelera</title>
+<meta name="description" content="Netflix, Prime Video, Disney+ y HBO Max de Argentina en un solo lugar, con filtros, festivales y listas propias.">
+<title>WatchListo</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" type="image/png" href="icons/favicon-64.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="Cartelera">
+<meta name="apple-mobile-web-app-title" content="WatchListo">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -27,7 +27,7 @@
 
 <header class="top" id="top">
   <div class="top-in">
-    <h1 class="brand">Cartelera</h1>
+    <h1 class="brand"><img class="brand-mark" src="icons/favicon-64.png" alt="" width="30" height="30"><span class="brand-w">Watch<span>Listo</span></span></h1>
     <div class="seg" role="group" aria-label="Sección" id="viewSeg">
       <button type="button" data-view="catalog">Catálogo</button>
       <button type="button" data-view="lists">Listas</button>
@@ -39,6 +39,7 @@
     <label class="search"><span class="sr">Buscar por título</span><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="q" type="search" placeholder="Buscar título" autocomplete="off" enterkeyhint="search"></label>
     <button class="btn only-narrow" id="openRail" type="button"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 6h16M7 12h10M10 18h4"/></svg>Filtros <span class="badge" id="fcount" hidden></span></button>
     <label class="sortwrap"><span class="sr">Ordenar por</span><select id="sort" class="sel"></select></label>
+    <button class="btn" id="openFest" type="button"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linejoin="round"><path d="M4 7h16v3a2 2 0 0 0 0 4v3H4v-3a2 2 0 0 0 0-4z"/><path d="M14.5 7.5v9" stroke-dasharray="1.6 2.2"/></svg>Festivales</button>
     <button class="btn btn-accent" id="pick" type="button"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3"/><circle cx="9" cy="9" r="1.2" fill="currentColor"/><circle cx="15" cy="15" r="1.2" fill="currentColor"/><circle cx="15" cy="9" r="1.2" fill="currentColor"/><circle cx="9" cy="15" r="1.2" fill="currentColor"/></svg>Elegime una</button>
     <button class="btn icon-btn" id="openSettings" type="button" aria-label="Ajustes" title="Ajustes"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
   </div>
@@ -122,7 +123,7 @@
 
   <main class="main" id="main">
     <section class="onboard" id="onboard" hidden>
-      <h2>Tu <span>cartelera</span>, de tus cuatro servicios</h2>
+      <h2>Tus cuatro servicios, una sola <span>lista</span></h2>
       <p>Netflix, Prime Video, Disney+ y HBO Max de Argentina en una sola grilla, con filtros por género y rating y listas propias. Para leer los catálogos necesito una clave gratuita de TMDB, la base de datos que usa JustWatch.</p>
       <p><b>¿Ya la usás en otro dispositivo?</b> Ahí abrí Ajustes → Vincular otro dispositivo y escaneá el código con la cámara de este. Queda todo configurado, listas incluidas.</p>
       <ol class="steps">
@@ -163,6 +164,15 @@
 
 <dialog id="dlgDetail" aria-label="Ficha del título"><div id="detail"></div></dialog>
 
+<dialog id="dlgFest" aria-labelledby="festTitle">
+  <div class="fest-top">
+    <button class="dlg-x" type="button" data-close aria-label="Cerrar"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+    <h2 id="festTitle">Festivales</h2>
+    <nav class="fest-nav" id="festNav" aria-label="Géneros"></nav>
+  </div>
+  <div class="fest-body" id="festBody"></div>
+</dialog>
+
 <dialog id="dlgSettings" aria-labelledby="setTitle">
   <form class="set" id="setForm" autocomplete="off">
     <button class="dlg-x" type="button" data-close aria-label="Cerrar"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
@@ -173,7 +183,7 @@
       <p class="hint">Tus listas se guardan en un Gist secreto de tu cuenta de GitHub. Hace falta un token que solo pueda tocar Gists:</p>
       <ol class="steps-sm">
         <li>Abrí <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener noreferrer">github.com/settings/personal-access-tokens/new</a> (token de tipo Fine-grained).</li>
-        <li>Nombre: <span class="kbd">Cartelera</span>. Vencimiento: un año.</li>
+        <li>Nombre: <span class="kbd">WatchListo</span>. Vencimiento: un año.</li>
         <li>En <b>Permissions → Account permissions → Gists</b> elegí <b>Read and write</b>. Ningún otro permiso, ningún repositorio.</li>
         <li>Generalo, copialo y pegalo acá abajo.</li>
       </ol>

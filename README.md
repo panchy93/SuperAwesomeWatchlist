@@ -1,6 +1,6 @@
-# Cartelera
+# WatchListo
 
-Catálogo personal de Netflix, Prime Video, Disney+ y HBO Max en Argentina, con filtros por género, rating (TMDB, IMDb, Rotten Tomatoes, Metacritic) y listas propias. Se instala como app desde el navegador.
+Catálogo personal de Netflix, Prime Video, Disney+ y HBO Max en Argentina, con filtros por género, rating (TMDB, IMDb, Rotten Tomatoes, Metacritic), festivales curados por género y listas propias. Se instala como app desde el navegador.
 
 ## Seguridad
 
@@ -13,4 +13,4 @@ Este producto usa la API de TMDB pero no está avalado ni certificado por TMDB. 
 
 ## Curaduría
 
-`curaduria.json` tiene etiquetas hechas a mano (subgénero, temas, tono, sección y parientes) para unos 230 títulos de terror y géneros vecinos. Las recomendaciones y los festivales las usan cuando la película está en la base. Se regenera con `python3 tools/build_curaduria.py`, que valida el vocabulario y que cada pariente exista.
+`curaduria.json` tiene etiquetas hechas a mano (subgénero, temas, tono, sección y parientes) para unos 635 títulos, repartidos en 51 secciones y 15 géneros (terror, ciencia ficción, thriller y crimen, drama, cine argentino y latino, comedia, romance, animación, acción y aventura, fantasía, bélico, western, música, documental y series). Las recomendaciones las usan cuando el título está en la base, y el botón **Festivales** arma un festival a partir de cualquier sección. Se regenera con `python3 tools/build_curaduria.py`, que valida el vocabulario, que cada pariente exista y que cada sección pertenezca a un solo género.

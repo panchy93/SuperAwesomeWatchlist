@@ -40,8 +40,11 @@ svg.i{width:16px;height:16px;flex:none}
 /* Header */
 .top{position:sticky;top:0;z-index:20;background:var(--bg);border-bottom:1px solid var(--line);padding-top:env(safe-area-inset-top,0px)}
 .top-in{display:flex;flex-wrap:wrap;align-items:center;gap:10px 12px;max-width:1600px;margin:0 auto;padding-block:10px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
-.brand{font:800 27px/1 var(--f-display);letter-spacing:.07em;text-transform:uppercase;color:var(--accent);margin:0 6px 0 0;padding-bottom:7px;position:relative;white-space:nowrap}
-.brand::after{content:"";position:absolute;left:1px;right:1px;bottom:0;height:3px;background:radial-gradient(circle,var(--accent) 1.1px,transparent 1.6px) 0 0/7px 3px repeat-x;opacity:.85}
+.brand{display:flex;align-items:center;gap:9px;font:800 27px/1 var(--f-display);letter-spacing:.07em;text-transform:uppercase;color:var(--fg);margin:0 6px 0 0;white-space:nowrap}
+.brand-mark{width:30px;height:30px;flex:none}
+.brand-w{position:relative;padding-bottom:7px}
+.brand-w span{color:var(--accent)}
+.brand-w::after{content:"";position:absolute;left:1px;right:1px;bottom:0;height:3px;background:radial-gradient(circle,var(--accent) 1.1px,transparent 1.6px) 0 0/7px 3px repeat-x;opacity:.85}
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:999px;padding:2px;background:var(--surface)}
 .seg button{border:0;background:transparent;padding:6px 12px;border-radius:999px;font-weight:600;font-size:14px;color:var(--muted)}
 .seg button[aria-pressed="true"]{background:var(--surface-2);color:var(--fg)}
@@ -294,5 +297,31 @@ dialog[open].fallback{position:fixed;top:14px;left:0;right:0;margin:0 auto;z-ind
   .sortwrap{order:7;flex:1 1 auto}
   .sortwrap .sel{width:100%}
   .count{font-size:22px}
+}
+/* Festivales: navegador de secciones curadas */
+.fest-top{position:sticky;top:0;z-index:2;background:var(--bg);padding:22px 26px 0;border-bottom:1px solid var(--line)}
+.fest-top h2{font:800 32px/1 var(--f-display);text-transform:uppercase;margin:0;letter-spacing:.02em;padding-right:48px}
+.fest-nav{display:flex;gap:6px;overflow-x:auto;padding:12px 0 12px;scrollbar-width:none}
+.fest-nav::-webkit-scrollbar{display:none}
+.fest-nav .pchip{flex:none;padding:5px 12px;border-color:var(--line)}
+.fest-nav .pchip:hover{border-color:var(--accent)}
+.fest-body{padding:6px 26px 28px}
+.fest-body > .hint{margin:12px 0 0}
+.fest-g{scroll-margin-top:118px;margin-top:22px}
+.fest-g h3{font:800 21px/1 var(--f-display);text-transform:uppercase;letter-spacing:.06em;color:var(--accent);margin:0 0 10px}
+.fest-secs{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px}
+.fsec{display:flex;flex-direction:column;align-items:stretch;gap:6px;text-align:left;border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:12px 14px;min-width:0}
+.fsec:hover{border-color:var(--accent)}
+.fsec[disabled]{opacity:.65;cursor:progress}
+.fsec-h{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.fsec-n{font-weight:700;font-size:15px;line-height:1.25}
+.fsec-c{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.fsec-s{font-size:12.5px;line-height:1.35;color:var(--muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.fsec-on{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ok)}
+@media (max-width:560px){
+  #openFest{order:6}
+  .fest-top{padding:18px 16px 0}
+  .fest-body{padding:4px 16px 24px}
+  .fest-secs{grid-template-columns:minmax(0,1fr)}
 }
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
