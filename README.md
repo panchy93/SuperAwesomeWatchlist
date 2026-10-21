@@ -88,5 +88,15 @@ JustWatch no deja que otras páginas lo consulten desde el navegador, así que l
 
 ## Ficha
 
+Arriba, el póster con el título y cuatro íconos: Mi lista, vista, **+** (sumar a cualquier lista o crear una) y **⋯** (Más como esta, Armar festival, No me interesa y, en un festival, usar como base o sacar). Después: puntajes en chico con las etiquetas de la curaduría, tus estrellas, tagline, sinopsis, tráiler, ficha técnica (equipo, sección de la curaduría y parientes), tus listas y dónde verla.
+
 - **Tráiler:** se ve en la misma ficha (miniatura con play). Sigue andando aunque puntúes o sumes a una lista, y se corta al cerrar.
-- **Nueva lista:** en "Tus listas" de la ficha, **+ Nueva lista** crea una lista con ese título adentro.
+- **Volver y cerrar:** el botón de cerrar queda siempre visible arriba (también debajo de la isla del iPhone). Si la ficha se abrió desde otra pantalla (por ejemplo, Random), aparece además un botón para volver. Instalada en iPhone, deslizar desde el borde izquierdo hace lo mismo que el Atrás de Android. Las vistas de una persona, "Más como esta" y las búsquedas tienen **Volver** arriba a la izquierda.
+
+## Listas
+
+Arriba, pestañas para elegir la lista (más **+ Nueva**). Debajo del título, qué es la lista (festival, compartida) y sus acciones: Parecidas y Armar festival, o Sumar 10 más en un festival; lo demás (compartir, renombrar, borrar o salir) está en **⋯**. El rumbo de un festival se despliega cuando hace falta.
+
+## Más resultados
+
+Al llegar al final, si lo que hay no alcanza, la app le pide a TMDB otra tanda de tus servicios con los filtros puestos (género, años, duración, rating de TMDB y orden), hasta avisar que no hay más. Con un mínimo de IMDb, Rotten Tomatoes o Metacritic, los puntajes que faltan se traen solos para lo que cumple el resto de los filtros (dentro del límite diario de OMDb).

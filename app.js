@@ -40,6 +40,8 @@ var ICON = {
   eye: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>',
   eyeOff: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.6 5.1A10.4 10.4 0 0 1 12 5c6.4 0 10 7 10 7a17.6 17.6 0 0 1-2.8 3.7M6.5 6.6C3.7 8.4 2 12 2 12s3.6 7 10 7a9.8 9.8 0 0 0 5.4-1.6"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/><path d="M3 3l18 18"/></svg>',
   plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
+  more: '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5.5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="18.5" cy="12" r="2"/></svg>',
+  back: '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>',
   check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>',
   x: '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>',
   star: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="m12 2.8 2.8 5.9 6.4.8-4.7 4.4 1.2 6.4L12 17.2l-5.7 3.1 1.2-6.4-4.7-4.4 6.4-.8z"/></svg>',
@@ -79,10 +81,10 @@ var SRC = {
   mc: { label: 'Metacritic', short: 'MC', max: 100, step: 1 },
   avg: { label: 'Promedio de todos', short: 'Prom.', max: 100, step: 1 }
 };
-var SORTS_CATALOG = [['rating', 'Mejor rating'], ['popularity', 'Más populares'], ['year', 'Más nuevas'], ['title', 'Título A-Z']];
-var SORTS_LISTS = [['added', 'Agregadas recién'], ['rating', 'Mejor rating'], ['popularity', 'Más populares'], ['year', 'Más nuevas'], ['title', 'Título A-Z']];
-var SORTS_RECO = [['match', 'Más parecidas'], ['rating', 'Mejor rating'], ['popularity', 'Más populares'], ['year', 'Más nuevas']];
-var SORTS_PERSON = [['year', 'Más nuevas'], ['rating', 'Mejor rating'], ['popularity', 'Más populares'], ['title', 'Título A-Z']];
+var SORTS_CATALOG = [['rating', 'Rating'], ['popularity', 'Populares'], ['year', 'Nuevas'], ['title', 'A-Z']];
+var SORTS_LISTS = [['added', 'Recientes'], ['rating', 'Rating'], ['popularity', 'Populares'], ['year', 'Nuevas'], ['title', 'A-Z']];
+var SORTS_RECO = [['match', 'Parecidas'], ['rating', 'Rating'], ['popularity', 'Populares'], ['year', 'Nuevas']];
+var SORTS_PERSON = [['year', 'Nuevas'], ['rating', 'Rating'], ['popularity', 'Populares'], ['title', 'A-Z']];
 var SORTS_SEARCH = [['relevance', 'Relevancia']];
 var KW_STOP = new Set(['woman director', 'duringcreditsstinger', 'aftercreditsstinger', 'sequel', 'prequel', 'remake', 'independent film', 'live action remake', '3d', 'imax', 'short film', 'directorial debut', 'female protagonist', 'male protagonist', 'christmas', 'new year', 'anime', 'lgbt interest', 'shot on 35mm', 'black and white']);
 
@@ -873,7 +875,7 @@ function currentPool() {
   state.rumboHidden = 0;
   return items;
 }
-function applyFilters(list) {
+function applyFilters(list, skipRating) {
   var f = state.f, q = fold(state.q), mine = ctxMine(), open = ctxOpen();
   var services = new Set(f.services);
   var inc = [], exc = [];
@@ -913,7 +915,7 @@ function applyFilters(list) {
     if (yFrom && (!it.y || it.y < yFrom)) return false;
     if (yTo && (!it.y || it.y > yTo)) return false;
     if (f.maxRuntime > 0) { var d = state.details[it.k]; if (d && d.rt && d.rt > f.maxRuntime) return false; }
-    if (f.ratingMin > 0) {
+    if (f.ratingMin > 0 && !skipRating) {
       var sc = scoreFor(it, f.ratingSrc);
       if (!nz(sc)) { if (!f.includeUnknown) return false; }
       else if (sc < f.ratingMin) return false;
@@ -1056,6 +1058,7 @@ function refresh(keepLimit) {
   $$('#tabbar [data-tab]').forEach(function (b) { var t = b.dataset.tab; if (t === 'catalog' || t === 'lists' || t === 'profile') { if (t === (sp ? '' : state.ui.view)) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); } });
   if (prof) renderProfile();
   renderTop(); renderListbar(); renderSpecialBar(); renderCount(); renderGrid(keepLimit); renderRailStatus(); saveUi();
+  if (state.f.ratingMin > 0 && state.f.ratingSrc !== 'tmdb') ratingsForFilter();
   if (state.menuItem) renderMenu();
   navSoon();
 }
@@ -1076,6 +1079,7 @@ function renderGrid(keepScroll) {
   if (!list.length) {
     grid.innerHTML = ''; more.hidden = true; empty.hidden = !!state.fatal;
     empty.innerHTML = emptyHTML();
+    if (canExtend() && !extEnded()) { extMoreButton(more); if (EXT.autoSig !== extSig()) { EXT.autoSig = extSig(); extendCatalog(); } }
     return;
   }
   empty.hidden = true;
@@ -1084,8 +1088,9 @@ function renderGrid(keepScroll) {
     more.hidden = !(A && A.page < A.total);
     more.textContent = A && A.loading ? 'Cargando…' : 'Cargar más';
   } else {
-    more.hidden = list.length <= state.limit;
+    more.hidden = list.length <= state.limit; more.disabled = false;
     if (!more.hidden) more.textContent = 'Mostrar más (' + nf.format(list.length - state.limit) + ' restantes)';
+    else extMoreButton(more);
   }
   observeCards();
   if (keepScroll) window.scrollTo(0, y);
@@ -1093,11 +1098,12 @@ function renderGrid(keepScroll) {
 function renderMore() {
   if (isAllMode()) { loadAll(true); return; }
   var list = state.filtered, from = state.limit;
-  if (from >= list.length) return;
+  if (from >= list.length) { if (canExtend()) extendCatalog(); return; }
   state.limit += PAGE;
   grid.insertAdjacentHTML('beforeend', list.slice(from, state.limit).map(cardHTML).join(''));
-  var more = $('#more'); more.hidden = list.length <= state.limit;
+  var more = $('#more'); more.hidden = list.length <= state.limit; more.disabled = false;
   if (!more.hidden) more.textContent = 'Mostrar más (' + nf.format(list.length - state.limit) + ' restantes)';
+  else extMoreButton(more);
   observeCards();
 }
 function observeCards() {
@@ -1134,7 +1140,6 @@ function renderCount() {
   gb.hidden = true;
   var sp = state.special;
   if (sp) {
-    gb.hidden = false; gb.textContent = 'Volver'; gb.dataset.mode = 'back';
     if (sp.kind === 'search') el.innerHTML = 'Resultados<small>para «' + esc(sp.q) + '» en todo TMDB</small>';
     else if (sp.kind === 'person') el.innerHTML = esc(sp.title) + '<small>' + (sp.loading ? 'cargando filmografía…' : titles(n)) + '</small>';
     else el.innerHTML = esc(sp.title) + '<small>' + (sp.loading ? (sp.progress || 'buscando parecidas…') : titles(n)) + '</small>';
@@ -1188,57 +1193,69 @@ function rumboHTML(l) {
     return '<button class="rchip' + (off ? ' off' : '') + '" type="button" data-rumbo="' + esc(k) + '" aria-pressed="' + !off + '" title="' + (off ? 'Volver a incluir' : 'Sacar del rumbo') + '">' + esc(labelName(k)) + (extra ? ' <span class="n">' + extra + '</span>' : '') + '</button>';
   };
   var hidden = state.rumboHidden || 0;
-  return '<div class="rumbo"><p class="rumbo-h"><b>Rumbo</b> Tocá una etiqueta para sacarla: el festival deja afuera lo que va más por ese lado que por el resto.' + (hidden ? ' <span class="rumbo-n">' + hidden + (hidden === 1 ? ' título oculto' : ' títulos ocultos') + ' por el rumbo</span>' : '') + '</p>' +
+  var off = Object.keys(tags).filter(function (k) { return tags[k].v < 0; }).length;
+  return '<details class="rumbo"' + (state.rumboOpen ? ' open' : '') + '><summary class="rumbo-s"><b>Rumbo</b><span>' + (off ? off + (off === 1 ? ' etiqueta fuera' : ' etiquetas fuera') : 'todas las etiquetas adentro') + (hidden ? ' · <span class="rumbo-n">' + hidden + (hidden === 1 ? ' título oculto' : ' títulos ocultos') + '</span>' : '') + '</span></summary>' +
+    '<p class="rumbo-h">Tocá una etiqueta para sacarla: el festival deja afuera lo que va más por ese lado que por el resto.</p>' +
     '<div class="rumbo-chips">' + ch.base.map(function (k) { return chip(k); }).join('') + '</div>' +
-    (ch.more.length ? '<details class="rumbo-more"' + (state.rumboMoreOpen ? ' open' : '') + '><summary>Más etiquetas</summary><div class="rumbo-chips">' + ch.more.map(function (k) { return chip(k, ch.freq[k]); }).join('') + '</div></details>' : '') + '</div>';
+    (ch.more.length ? '<details class="rumbo-more"' + (state.rumboMoreOpen ? ' open' : '') + '><summary>Más etiquetas</summary><div class="rumbo-chips">' + ch.more.map(function (k) { return chip(k, ch.freq[k]); }).join('') + '</div></details>' : '') + '</details>';
 }
 function shareCandidates(l) { return cloudIn() ? CLOUD.buddies.filter(function (b) { return !b.pending && (l.members || []).indexOf(b.uid) < 0; }) : []; }
+/* Listas: arriba, pestañas para elegir la lista (navegación); debajo del título, qué es la
+   lista y sus acciones (las principales a la vista, el resto en «⋯»). */
+var LI = {
+  spark: '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.8 4.6L18.5 9l-4.7 1.5L12 15l-1.8-4.5L5.5 9l4.7-1.4z"/><path d="M19 15l.8 2.1 2.2.9-2.2.8L19 21l-.8-2.2-2.2-.8 2.2-.9z"/></svg>',
+  plus: '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>'
+};
 function renderListbar() {
-  var bar = $('#listbar');
-  bar.hidden = state.ui.view !== 'lists' || !!state.special;
+  var bar = $('#listbar'), tb = $('#listtools');
+  bar.hidden = tb.hidden = state.ui.view !== 'lists' || !!state.special;
   if (bar.hidden) return;
   var cur = state.ui.list;
   if (cur !== 'seen' && cur !== 'hidden' && !getList(cur)) cur = state.ui.list = 'watchlist';
-  var pills = visibleLists().map(function (l) { var fest = isRadio(l); return '<button class="lpill' + (fest ? ' is-fest' : '') + (l.shared ? ' is-shared' : '') + '" type="button" data-list="' + esc(l.id) + '" aria-pressed="' + (l.id === cur) + '"' + (fest ? ' title="Festival: una lista que se completa sola"' : '') + '>' + (fest ? ICON.ticket : '') + (l.shared ? DUO_ICON : '') + esc(l.name) + ' <span class="n">' + nf.format(listKeys(l).length) + '</span></button>'; });
-  pills.push('<button class="lpill" type="button" data-list="seen" aria-pressed="' + (cur === 'seen') + '">Vistas <span class="n">' + nf.format(seenKeys().length) + '</span></button>');
+  var tab = function (id, label, n, cls, icon, title) { return '<button class="ltab' + (cls ? ' ' + cls : '') + '" type="button" role="tab" data-list="' + esc(id) + '" aria-selected="' + (id === cur) + '"' + (title ? ' title="' + title + '"' : '') + '>' + (icon || '') + '<span>' + esc(label) + '</span> <span class="n">' + nf.format(n) + '</span></button>'; };
+  var tabs = visibleLists().map(function (l) { var fest = isRadio(l); return tab(l.id, l.name, listKeys(l).length, (fest ? 'is-fest' : '') + (l.shared ? ' is-shared' : ''), (fest ? ICON.ticket : '') + (l.shared ? DUO_ICON : ''), fest ? 'Festival: una lista que se completa sola' : ''); });
+  tabs.push(tab('seen', 'Vistas', seenKeys().length));
   var nh = hiddenKeys().length;
-  if (nh || cur === 'hidden') pills.push('<button class="lpill lpill-dim" type="button" data-list="hidden" aria-pressed="' + (cur === 'hidden') + '" title="Lo que marcaste con «No me interesa»">Ocultas <span class="n">' + nf.format(nh) + '</span></button>');
-  if (cur === 'hidden' && !state.listEdit) {
-    bar.innerHTML = pills.join('') + '<p class="hint radio-hint">No aparecen en el catálogo, las recomendaciones ni los festivales, y le enseñan a la app qué no te interesa. Para devolver una, tocá el + del póster o abrila y elegí «Volver a mostrar».</p>';
+  if (nh || cur === 'hidden') tabs.push(tab('hidden', 'Ocultas', nh, 'is-dim', '', 'Lo que marcaste con «No me interesa»'));
+  tabs.push('<button class="ltab ltab-new" type="button" data-tool="new" aria-label="Nueva lista" title="Nueva lista">' + LI.plus + '<span>Nueva</span></button>');
+  bar.innerHTML = '<nav class="ltabs" role="tablist" aria-label="Tus listas">' + tabs.join('') + '</nav>';
+  var act = bar.querySelector('[aria-selected="true"]');
+  if (act) { var nav = bar.firstChild, r = act.offsetLeft - nav.offsetLeft; if (r < nav.scrollLeft || r + act.offsetWidth > nav.scrollLeft + nav.clientWidth) nav.scrollLeft = Math.max(0, r - 16); }
+
+  var l = getList(cur), editable = l && l.id !== 'watchlist', meta = '', acts = '', more = [];
+  if (state.listEdit === 'new') { tb.innerHTML = '<form class="inline-form" data-form="new"><label class="sr" for="newListInp">Nombre</label><input class="inp" id="newListInp" maxlength="40" placeholder="Nombre de la lista nueva"><button class="btn btn-accent" type="submit">Crear</button><button class="btn btn-ghost" type="button" data-cancel>Cancelar</button></form>'; $('#newListInp').focus(); return; }
+  if (state.listEdit === 'rename' && editable) { tb.innerHTML = '<form class="inline-form" data-form="rename"><label class="sr" for="renListInp">Nuevo nombre</label><input class="inp" id="renListInp" maxlength="40" value="' + esc(l.name) + '"><button class="btn btn-accent" type="submit">Guardar</button><button class="btn btn-ghost" type="button" data-cancel>Cancelar</button></form>'; $('#renListInp').focus(); return; }
+  if ((state.listEdit === 'share' || state.listEdit === 'addmember') && l) {
+    var pick = shareCandidates(l), sel = state.shareSel || new Set();
+    tb.innerHTML = '<div class="share-pick"><span class="hint">' + (state.listEdit === 'share' ? 'Compartir con:' : 'Sumar a:') + '</span>' + pick.map(function (b) { return '<button class="g-chip" type="button" data-pick="' + esc(b.uid) + '" aria-pressed="' + sel.has(b.uid) + '">' + esc(b.name) + '</button>'; }).join('') +
+      '<button class="btn btn-accent" type="button" data-tool="share-go"' + (sel.size ? '' : ' disabled') + '>' + (state.listEdit === 'share' ? 'Compartir' : 'Sumar') + '</button><button class="btn btn-ghost" type="button" data-cancel>Cancelar</button></div>';
     return;
   }
-  var tools = '';
-  var l = getList(cur);
-  var editable = l && l.id !== 'watchlist';
-  if (state.listEdit === 'new') tools = '<form class="inline-form" data-form="new"><label class="sr" for="newListInp">Nombre</label><input class="inp" id="newListInp" maxlength="40" placeholder="Nombre de la lista"><button class="btn btn-accent" type="submit">Crear</button><button class="btn btn-ghost" type="button" data-cancel>Cancelar</button></form>';
-  else if ((state.listEdit === 'share' || state.listEdit === 'addmember') && l) {
-    var pick = shareCandidates(l), sel = state.shareSel || new Set();
-    tools = '<span class="share-pick"><span class="hint">' + (state.listEdit === 'share' ? 'Compartir con:' : 'Sumar a:') + '</span>' + pick.map(function (b) { return '<button class="g-chip" type="button" data-pick="' + esc(b.uid) + '" aria-pressed="' + sel.has(b.uid) + '">' + esc(b.name) + '</button>'; }).join('') +
-      '<button class="btn btn-accent" type="button" data-tool="share-go"' + (sel.size ? '' : ' disabled') + '>' + (state.listEdit === 'share' ? 'Compartir' : 'Sumar') + '</button><button class="btn btn-ghost" type="button" data-cancel>Cancelar</button></span>';
+  if (cur === 'hidden') meta = '<p class="lmeta">No aparecen en el catálogo, las recomendaciones ni los festivales, y le enseñan a la app qué no te interesa. Para devolver una, tocá el + del póster o abrila y elegí «Volver a mostrar».</p>';
+  if (cur === 'seen' && seenKeys().length) acts += '<button class="btn btn-accent btn-sm" type="button" data-tool="foryou">' + LI.spark + (duoComp() ? esc(forYouNames().title) : 'Recomendaciones para vos') + '</button>';
+  if (l) {
+    var count = listKeys(l).length;
+    if (isRadio(l)) {
+      var seeds = seedKeys(l).map(resolveItem).filter(Boolean).map(function (x) { return x.t; });
+      meta += '<p class="lmeta">' + ICON.ticket + '<span><b>Festival</b> · se completa solo a partir de ' + esc(seeds.join(', ') || 'sus pelis base') + '.</span></p>';
+      acts += '<button class="btn btn-accent btn-sm" type="button" data-tool="radio-more"' + (state.radioBusy ? ' disabled' : '') + '>' + LI.plus + (state.radioBusy ? 'Buscando…' : 'Sumar 10 más') + '</button>';
+    } else if (count) {
+      acts += '<button class="btn btn-sm" type="button" data-tool="reco">' + LI.spark + 'Parecidas</button><button class="btn btn-sm" type="button" data-tool="radio-from">' + ICON.ticket + 'Armar festival</button>';
+    }
+    if (l.shared) {
+      var others = (l.members || []).filter(function (m) { return m !== cloudUid(); }).map(function (m) { return l.memberNames[m] || 'alguien'; });
+      meta = '<p class="lmeta">' + DUO_ICON + '<span>Compartida con ' + esc(others.join(', ') || 'nadie más') + (isRadio(l) ? '; el festival se programa con el gusto de los dos.' : '. Todos pueden sumar, sacar y renombrar.') + '</span></p>' + meta;
+    }
+    if (cloudIn() && shareCandidates(l).length) more.push('<button class="mi" type="button" data-tool="' + (l.shared ? 'addmember' : 'share') + '">' + DUO_ICON + (l.shared ? 'Sumar persona' : 'Compartir') + '</button>');
+    if (editable) {
+      more.push('<button class="mi" type="button" data-tool="rename">Renombrar</button>');
+      more.push(l.shared && l.owner !== cloudUid()
+        ? '<button class="mi mi-danger" type="button" data-tool="leave">' + (state.confirmDelete === l.id ? 'Tocá de nuevo para salir' : 'Salir de la lista') + '</button>'
+        : '<button class="mi mi-danger" type="button" data-tool="delete">' + (state.confirmDelete === l.id ? 'Tocá de nuevo para borrarla' : 'Borrar lista') + '</button>');
+    }
   }
-  else if (state.listEdit === 'rename' && editable) tools = '<form class="inline-form" data-form="rename"><label class="sr" for="renListInp">Nuevo nombre</label><input class="inp" id="renListInp" maxlength="40" value="' + esc(l.name) + '"><button class="btn btn-accent" type="submit">Guardar</button><button class="btn btn-ghost" type="button" data-cancel>Cancelar</button></form>';
-  else {
-    tools = '<button class="btn" type="button" data-tool="new"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Nueva lista</button>';
-    var count = l ? listKeys(l).length : 0;
-    if (l && isRadio(l)) tools += '<button class="btn btn-accent" type="button" data-tool="radio-more"' + (state.radioBusy ? ' disabled' : '') + '>' + (state.radioBusy ? 'Buscando…' : 'Sumar 10 más') + '</button>';
-    else if (l && count) tools += '<button class="btn" type="button" data-tool="reco">Parecidas a esta lista</button><button class="btn" type="button" data-tool="radio-from">Armar festival</button>';
-    if (cur === 'seen' && seenKeys().length) tools += '<button class="btn btn-accent" type="button" data-tool="foryou">' + (duoComp() ? esc(forYouNames().title) : 'Recomendaciones para vos') + '</button>';
-    if (l && cloudIn() && shareCandidates(l).length) tools += '<button class="btn" type="button" data-tool="' + (l.shared ? 'addmember' : 'share') + '">' + DUO_ICON + (l.shared ? 'Sumar persona' : 'Compartir') + '</button>';
-    if (editable) tools += '<button class="btn btn-ghost" type="button" data-tool="rename">Renombrar</button>' + (l.shared && l.owner !== cloudUid() ?
-      '<button class="btn btn-ghost" type="button" data-tool="leave">' + (state.confirmDelete === l.id ? 'Confirmar salida' : 'Salir de la lista') + '</button>' :
-      '<button class="btn btn-ghost" type="button" data-tool="delete">' + (state.confirmDelete === l.id ? 'Confirmar borrado' : 'Borrar lista') + '</button>');
-  }
-  var radioHint = '';
-  if (l && isRadio(l) && !state.listEdit) {
-    var seeds = seedKeys(l).map(resolveItem).filter(Boolean).map(function (s) { return s.t; });
-    radioHint = '<p class="hint radio-hint"><span class="radio-tag">Festival</span> Una lista que se completa sola. Programado a partir de: ' + esc(seeds.join(', ')) + '. Abrí cualquier peli para usarla como base o sacarla del festival.</p>' + rumboHTML(l);
-  }
-  if (l && l.shared && !state.listEdit) {
-    var others = (l.members || []).filter(function (m) { return m !== cloudUid(); }).map(function (m) { return l.memberNames[m] || 'alguien'; });
-    radioHint = '<p class="hint share-hint">' + DUO_ICON + ' Compartida con ' + esc(others.join(', ') || 'nadie más') + '. Todos pueden sumar, sacar' + (isRadio(l) ? ', cambiar el rumbo y sumar más; el festival se programa con el gusto de los dos.' : ' y renombrar.') + '</p>' + radioHint;
-  }
-  bar.innerHTML = pills.join('') + '<span class="list-tools">' + tools + '</span>' + radioHint;
-  var inp = $('#newListInp') || $('#renListInp'); if (inp) inp.focus();
+  if (more.length) acts += '<details class="dpop lmore"' + (state.confirmDelete === (l && l.id) ? ' open' : '') + '><summary class="dq dq-sm" aria-label="Más opciones de la lista" title="Más opciones">' + ICON.more + '</summary><div class="dpop-panel" role="menu">' + more.join('') + '</div></details>';
+  tb.innerHTML = (meta || acts ? '<div class="ltools">' + meta + (acts ? '<div class="lacts">' + acts + '</div>' : '') + '</div>' : '') + (l && isRadio(l) ? rumboHTML(l) : '');
 }
 
 function renderRail() {
@@ -1353,7 +1370,7 @@ async function openDetail(it, pick) {
 /* escala de estrellas (pasar el dedo o el mouse muestra qué significa cada una) */
 var STAR_NAME = ['', 'Mala', 'Decente', 'Buena', 'Excelente', 'Increíble'];
 var STAR_TXT = ['', 'Mala: no me gustó, no la recomendaría', 'Decente: no es para mí, aunque no la pasé mal', 'Buena: la disfruté; tiene sus defectos, pero cumple', 'Excelente: me encantó, la recomiendo sin dudar', 'Increíble: memorable, un clásico que marca un antes y un después'];
-function starHintText(n) { if (!n) return 'Tocá o deslizá el dedo sobre las estrellas para puntuar'; var t = STAR_TXT[n].split(': ')[1]; return '<b>' + '★'.repeat(n) + ' ' + STAR_NAME[n] + '</b> · ' + esc(t.charAt(0).toUpperCase() + t.slice(1)) + '.'; }
+function starHintText(n) { if (!n) return 'Tocá o deslizá el dedo sobre las estrellas para puntuar'; var t = STAR_TXT[n].split(': ')[1]; return '<b>' + STAR_NAME[n] + '</b> · ' + esc(t.charAt(0).toUpperCase() + t.slice(1)) + '.'; }
 function starPreview(n) {
   var box = $('#myStars'), hint = $('#starHint'); if (!box) return;
   var cur = +box.dataset.cur || 0, show = n == null ? cur : n;
@@ -1387,11 +1404,14 @@ function renderDetail() {
   if (lite.rt) facts.push(fmtRuntime(lite.rt, it.type));
   if (lite.seasons) facts.push(lite.seasons + (lite.seasons === 1 ? ' temporada' : ' temporadas'));
   if (genres.length) facts.push(genres.join(', '));
-  var big = ['tmdb', 'imdb', 'rt', 'mc'].map(function (k) {
+  /* puntajes chicos, y al lado las etiquetas de la curaduría */
+  var scores = ['tmdb', 'imdb', 'rt', 'mc'].map(function (k) {
     var v = s[k];
     if (!nz(v) && k !== 'tmdb' && !state.settings.omdbKey) return '';
-    return '<div class="bs' + (nz(v) ? '' : ' na') + '"><b>' + fmtScore(k, v) + '</b><span>' + SRC[k].label + '</span></div>';
+    return '<span class="ds' + (nz(v) ? '' : ' na') + '"><b>' + fmtScore(k, v) + '</b><i>' + SRC[k].short + '</i></span>';
   }).join('');
+  var cf = curFind({ t: title, ot: orig, y: it.y, type: it.type }) || curFind(it), L = CUR && CUR.labels;
+  var ctags = cf ? cf.sub.map(function (v) { return L.sub[v]; }).concat(cf.ton.map(function (v) { return L.ton[v]; }), cf.tem.map(function (v) { return L.tem[v]; })).filter(Boolean).slice(0, 7) : [];
   var people = '';
   if (full) {
     var crew = dig(full, 'credits.crew') || [], cast = (dig(full, 'credits.cast') || []).slice(0, 8);
@@ -1401,14 +1421,19 @@ function renderDetail() {
     var mus = crew.filter(function (c) { return CREW_ROLE(c) === 'mus'; }).slice(0, 2);
     var dop = crew.filter(function (c) { return CREW_ROLE(c) === 'dop'; }).slice(0, 2);
     var pbtn = function (p) { return '<button class="plink" type="button" data-person="' + (+p.id) + '" data-pname="' + esc(p.name) + '">' + esc(p.name) + '</button>'; };
-    var uniq = function (arr) { var s = {}; return arr.filter(function (p) { if (!p || !p.id || s[p.id]) return false; s[p.id] = 1; return true; }); };
+    var uniq = function (arr) { var u = {}; return arr.filter(function (p) { if (!p || !p.id || u[p.id]) return false; u[p.id] = 1; return true; }); };
     if (dir.length) people += '<dt>' + (it.type === 'movie' ? 'Dirección' : 'Creada por') + '</dt><dd>' + uniq(dir).map(pbtn).join(', ') + '</dd>';
     if (wri.length) people += '<dt>Guion</dt><dd>' + uniq(wri).map(pbtn).join(', ') + '</dd>';
     if (mus.length) people += '<dt>Música</dt><dd>' + uniq(mus).map(pbtn).join(', ') + '</dd>';
     if (dop.length) people += '<dt>Fotografía</dt><dd>' + uniq(dop).map(pbtn).join(', ') + '</dd>';
     if (cast.length) people += '<dt>Reparto</dt><dd>' + uniq(cast).map(pbtn).join(', ') + '</dd>';
   }
-  var wtw = '', mineHere = false;
+  if (cf) {
+    var rels = Array.from(CUR.rel.get(cf.id) || []).slice(0, 6).map(function (r) { var f = CUR.byId.get(r); return f.t + ' (' + f.y + ')'; });
+    people += '<dt>Curaduría</dt><dd><button class="plink" type="button" data-cursec="' + esc(cf.sec) + '" title="Armar un festival con esta sección">' + esc(L.sec[cf.sec]) + ' ›</button></dd>' +
+      (rels.length ? '<dt>Parientes</dt><dd>' + esc(rels.join(' · ')) + '</dd>' : '');
+  }
+  var wtw = '';
   if (full) {
     var wp = dig(full, 'watch/providers.results.' + state.settings.region) || {};
     var flat = (wp.flatrate || []).concat(wp.ads || [], wp.free || []);
@@ -1417,7 +1442,6 @@ function renderDetail() {
       var svc = servicesForProviders(it.type, [p]);
       return svc.length ? '<span class="sb ' + svcClass(svc[0]) + '">' + esc(p.provider_name) + '</span>' : '<span class="sb dim">' + esc(p.provider_name) + '</span>';
     }).join('');
-    mineHere = servicesForProviders(it.type, flat).length > 0;
     var stremioRow = '';
     if (STREMIO_ON && lite.imdb) {
       var sr = ST.cache[lite.imdb], stApp = stremioHref(it.type, lite.imdb), stWeb = stremioHref(it.type, lite.imdb, true);
@@ -1425,7 +1449,7 @@ function renderDetail() {
         var sl = stremioLangs(sr);
         stremioRow = '<div class="st-row"><span class="sb c-stremio">Stremio</span><span class="st-info"><b>' + esc(stremioQual(sr) || 'Calidad sin dato') + '</b>' +
           (sl.length ? ' · Audio ' + esc(sl.join(', ')) : ' · Sin audio en español marcado') + ' · ' + nf.format(sr.n) + (sr.n === 1 ? ' fuente' : ' fuentes') + (it.type === 'tv' ? ' (1.er episodio)' : '') + '</span></div>' +
-          '<div class="actions-2"><a class="btn" href="' + stApp + '">Abrir en Stremio</a><a class="btn btn-ghost" href="' + stWeb + '" target="_blank" rel="noopener noreferrer">Stremio Web</a></div>';
+          '<div class="actions-2"><a class="btn btn-sm" href="' + stApp + '">Abrir en Stremio</a><a class="btn btn-ghost btn-sm" href="' + stWeb + '" target="_blank" rel="noopener noreferrer">Stremio Web</a></div>';
       } else if (sr && sr.cam) stremioRow = '<p class="hint">En Stremio solo hay versiones filmadas en el cine.</p>';
       else if (!sr && !ST.off) stremioRow = '<p class="hint">Buscando en Stremio…</p>';
     }
@@ -1441,60 +1465,61 @@ function renderDetail() {
   if (lite.imdb) links.push('<a href="https://www.imdb.com/title/' + lite.imdb + '/"' + ext + '>IMDb</a>');
   links.push('<a href="https://www.justwatch.com/ar/buscar?q=' + encodeURIComponent(title) + '"' + ext + '>JustWatch</a>');
   if (it.type === 'movie') links.push('<a href="https://letterboxd.com/tmdb/' + (+it.id) + '/"' + ext + '>Letterboxd</a>');
-  var watch = inList('watchlist', it.k), seen = isSeen(it.k), stars = starOf(it.k), rctx = radioContext();
+  links.push('<a href="https://www.doesthedogdie.com/search?q=' + encodeURIComponent((cf && cf.t) || orig || title) + '"' + ext + '>Advertencias (Does the Dog Die)</a>');
+  var watch = inList('watchlist', it.k), seen = isSeen(it.k), stars = starOf(it.k), rctx = radioContext(), hidden = isHidden(it.k);
+  var inFest = rctx && listKeys(rctx).indexOf(it.k) >= 0, isBase = inFest && seedIn(rctx, it.k);
   var starBtns = ''; for (var i = 1; i <= 5; i++) starBtns += '<button class="star' + (i <= stars ? ' on' : '') + '" type="button" data-star="' + i + '" aria-label="' + i + (i === 1 ? ' estrella. ' : ' estrellas. ') + STAR_TXT[i] + '" title="' + STAR_TXT[i] + '" aria-pressed="' + (i === stars) + '">' + ICON.star + '</button>';
-  var listChips = visibleLists().filter(function (l) { return l.id !== 'watchlist'; }).map(function (l) { return '<button class="chip" type="button" data-dlist="' + esc(l.id) + '" aria-pressed="' + isIn(l, it.k) + '">' + esc(l.name) + '</button>'; }).join('');
+  var lists = visibleLists(), saved = lists.some(function (l) { return isIn(l, it.k); });
+  var listChips = lists.filter(function (l) { return l.id !== 'watchlist'; }).map(function (l) { return '<button class="chip" type="button" data-dlist="' + esc(l.id) + '" aria-pressed="' + isIn(l, it.k) + '">' + esc(l.name) + '</button>'; }).join('');
   var newList = D.newList
     ? '<form class="dnew" data-dnewform autocomplete="off"><label class="sr" for="dNewName">Nombre de la lista nueva</label><input class="inp" id="dNewName" maxlength="40" placeholder="Nombre de la lista nueva"><button class="btn btn-accent" type="submit">Crear y sumar</button><button class="btn btn-ghost" type="button" data-dnewcancel>Cancelar</button></form>'
     : '<button class="chip chip-new" type="button" data-dnewlist>+ Nueva lista</button>';
-  var cf = curFind({ t: title, ot: orig, y: it.y, type: it.type }) || curFind(it), curHtml = '';
-  if (cf) {
-    var L = CUR.labels, tag = function (v) { return '<span class="ctag">' + esc(v) + '</span>'; };
-    var rels = Array.from(CUR.rel.get(cf.id) || []).slice(0, 6).map(function (r) { var f = CUR.byId.get(r); return f.t + ' (' + f.y + ')'; });
-    curHtml = '<div class="dsec cur"><h3>Curaduría</h3><p class="cur-sec">Sección <b>' + esc(L.sec[cf.sec]) + '</b></p>' +
-      '<div class="ctags">' + cf.sub.map(function (v) { return tag(L.sub[v]); }).join('') + cf.tem.map(function (v) { return tag(L.tem[v]); }).join('') + cf.ton.map(function (v) { return tag(L.ton[v]); }).join('') + '</div>' +
-      (rels.length ? '<p class="hint">Parientes: ' + esc(rels.join(' · ')) + '</p>' : '') +
-      '<div class="actions-2"><button class="btn" type="button" data-cursec="' + esc(cf.sec) + '">Armar festival: ' + esc(L.sec[cf.sec]) + '</button></div></div>';
-  }
-  var dtddTitle = (cf && cf.t) || orig || title;
-  links.push('<a href="https://www.doesthedogdie.com/search?q=' + encodeURIComponent(dtddTitle) + '"' + ext + '>Advertencias (Does the Dog Die)</a>');
+  /* acciones: íconos junto al póster, como en las tarjetas; lo demás en «Más» */
+  var popLists = '<div class="dpop-panel" role="menu" aria-label="Agregar a una lista"><p class="menu-h">Agregar a</p>' + lists.map(function (l) {
+      return '<button class="mi" type="button" role="menuitemcheckbox" aria-checked="' + isIn(l, it.k) + '" data-dlist="' + esc(l.id) + '"><span class="box">' + ICON.check + '</span><span class="lname">' + esc(l.name) + '</span></button>';
+    }).join('') + '<form class="dpop-new" data-dpopform autocomplete="off"><label class="sr" for="dPopName">Nombre de la lista nueva</label><input class="inp" id="dPopName" maxlength="40" placeholder="Lista nueva"><button class="btn btn-sm" type="submit">Crear</button></form></div>';
+  var popMore = '<div class="dpop-panel" role="menu" aria-label="Más opciones">' +
+      '<button class="mi" type="button" data-dact="reco">Más como esta</button>' +
+      '<button class="mi" type="button" data-dact="radio">' + ICON.ticket + 'Armar festival con esta</button>' +
+      (inFest ? (isBase ? '<p class="mi-note">Es una de las pelis base de este festival.</p>' : '<button class="mi" type="button" data-dact="seed">Usar como base del festival</button>') + '<button class="mi" type="button" data-dact="nope">Sacar del festival</button>' : '') +
+      '<button class="mi" type="button" data-dact="hide" aria-pressed="' + hidden + '">' + (hidden ? 'Volver a mostrar' : 'No me interesa · ocultar') + '</button></div>';
+  var side =
+    (D.pick ? '<p class="eyebrow">Para esta noche</p>' : '') +
+    (isBase ? '<p class="det-badge">Base del festival</p>' : '') +
+    '<h2 class="det-title">' + esc(title) + '</h2>' +
+    (orig && fold(orig) !== fold(title) ? '<p class="det-orig">' + esc(orig) + '</p>' : '') +
+    '<p class="det-facts">' + esc(facts.join(' · ')) + '</p>' +
+    '<div class="dq-row">' +
+      '<button class="dq" type="button" data-dact="watch" aria-pressed="' + watch + '" aria-label="' + (watch ? 'En Mi lista' : 'Sumar a Mi lista') + '" title="' + (watch ? 'En Mi lista' : 'Sumar a Mi lista') + '">' + (watch ? ICON.bookmarkOn : ICON.bookmark) + '</button>' +
+      '<button class="dq" type="button" data-dact="seen" aria-pressed="' + seen + '" aria-label="' + (seen ? 'Vista' : 'Marcar como vista') + '" title="' + (seen ? 'Vista' : 'Marcar como vista') + '">' + ICON.eye + '</button>' +
+      '<details class="dpop" data-pop="lists"' + (D.pop === 'lists' ? ' open' : '') + '><summary class="dq' + (saved && !watch ? ' saved' : '') + '" aria-label="Agregar a una lista" title="Agregar a una lista">' + ICON.plus + '</summary>' + popLists + '</details>' +
+      '<details class="dpop" data-pop="more"' + (D.pop === 'more' ? ' open' : '') + '><summary class="dq" aria-label="Más opciones" title="Más opciones">' + ICON.more + '</summary>' + popMore + '</details>' +
+      (D.pick ? '<button class="btn btn-sm" type="button" data-repick>Otra opción</button>' : '') +
+    '</div>';
   var partA =
-        (D.pick ? '<p class="eyebrow">Para esta noche</p>' : '') +
-        '<h2 class="det-title">' + esc(title) + '</h2>' +
-        (orig && fold(orig) !== fold(title) ? '<p class="det-orig">' + esc(orig) + '</p>' : '') +
-        '<p class="det-facts">' + esc(facts.join(' · ')) + '</p>' +
-        '<div class="bigscores">' + big + '</div>' +
-        (D.pick ? '<div class="pick-bar"><button class="btn" type="button" data-repick>Otra opción</button></div>' : '') +
-        '<div class="actions">' +
-          '<button class="btn" type="button" data-dact="watch" aria-pressed="' + watch + '">' + (watch ? 'En Mi lista' : 'Sumar a Mi lista') + '</button>' +
-          '<button class="btn" type="button" data-dact="seen" aria-pressed="' + seen + '">' + (seen ? 'Vista' : 'Marcar como vista') + '</button>' +
-          '<span class="stars" id="myStars" role="group" aria-label="Tu puntaje" data-cur="' + stars + '">' + starBtns + '</span>' +
-        '</div>' + '<p class="star-hint" id="starHint" aria-live="polite">' + starHintText(stars) + '</p>' + duoRowHTML(it) +
-        '<div class="actions-2">' +
-          '<button class="btn" type="button" data-dact="reco">Más como esta</button>' +
-          '<button class="btn" type="button" data-dact="radio">Armar festival</button>' +
-          '<button class="btn btn-ghost" type="button" data-dact="hide" aria-pressed="' + isHidden(it.k) + '">' + (isHidden(it.k) ? 'Volver a mostrar' : 'No me interesa') + '</button>' +
-          (rctx && listKeys(rctx).indexOf(it.k) >= 0 ? (seedIn(rctx, it.k) ? '<span class="hint">Es una de las pelis base de este festival.</span>' : '<button class="btn" type="button" data-dact="seed">Usar como base</button>') + '<button class="btn btn-ghost" type="button" data-dact="nope">Sacar del festival</button>' : '') +
-        '</div>' +
-        '<div class="dsec"><h3>Tus listas</h3><div class="chips">' + listChips + (D.newList ? '' : newList) + '</div>' + (D.newList ? newList : '') + '</div>' +
-        curHtml +
-        (full && full.tagline ? '<p class="tagline">' + esc(full.tagline) + '</p>' : '') +
-        (full ? '<p class="overview">' + esc(full.overview || 'Sin sinopsis en este idioma.') + '</p>' : (D.error ? '<p class="err">' + esc(D.error) + '</p>' : '<p class="hint">Cargando la ficha…</p>'));
+    '<div class="det-scores">' + scores + (ctags.length ? '<span class="det-tags">' + ctags.map(function (t) { return '<span class="ctag">' + esc(t) + '</span>'; }).join('') + '</span>' : '') + '</div>' +
+    '<div class="det-stars"><span class="stars" id="myStars" role="group" aria-label="Tu puntaje" data-cur="' + stars + '">' + starBtns + '</span>' +
+    '<p class="star-hint" id="starHint" aria-live="polite">' + starHintText(stars) + '</p></div>' + duoRowHTML(it) +
+    (full && full.tagline ? '<p class="tagline">' + esc(full.tagline) + '</p>' : '') +
+    (full ? '<p class="overview">' + esc(full.overview || 'Sin sinopsis en este idioma.') + '</p>' : (D.error ? '<p class="err">' + esc(D.error) + '</p>' : '<p class="hint">Cargando la ficha…</p>'));
   var partB =
-        (people ? '<dl class="kv">' + people + '</dl>' : '') +
-        wtw +
-        '<div class="links">' + links.join('') + '</div>';
+    (people ? '<div class="dsec"><h3>Ficha técnica</h3><dl class="kv">' + people + '</dl></div>' : '') +
+    '<div class="dsec"><h3>Tus listas</h3><div class="chips">' + listChips + (D.newList ? '' : newList) + '</div>' + (D.newList ? newList : '') + '</div>' +
+    wtw +
+    '<div class="links">' + links.join('') + '</div>';
   /* La ficha se arma una vez por título y después se actualiza por partes: así el tráiler,
      si está andando, no se corta cuando llegan los puntajes o tocás una estrella. */
   var root = $('#detail');
-  var typed = $('#dNewName'), typedVal = typed ? typed.value : '', typedFocus = !!typed && document.activeElement === typed;
+  var keepVals = {}, focusedId = document.activeElement && root.contains(document.activeElement) ? document.activeElement.id : '';
+  ['dNewName', 'dPopName'].forEach(function (id) { var x = document.getElementById(id); if (x && x.value) keepVals[id] = x.value; });
   if (root.dataset.k !== it.k || !$('#detTrailer', root)) {
-    root.innerHTML = '<button class="dlg-x" type="button" data-close aria-label="Cerrar">' + ICON.x + '</button>' +
-      '<div class="det-hero"></div><div class="det-body"><div class="det-poster" id="detPoster"></div>' +
+    root.innerHTML = '<div class="dlg-bar"><button class="dlg-back" type="button" data-goback aria-label="Volver" title="Volver" hidden>' + ICON.back + '</button><button class="dlg-x" type="button" data-close aria-label="Cerrar" title="Cerrar">' + ICON.x + '</button></div>' +
+      '<div class="det-hero"></div><div class="det-body"><div class="det-head"><div class="det-poster" id="detPoster"></div><div class="det-side" id="detSide"></div></div>' +
       '<div class="det-main"><div class="det-part" id="detA"></div><div class="dsec dtrailer" id="detTrailer" hidden></div><div class="det-part" id="detB"></div></div></div>';
     root.dataset.k = it.k;
   }
   $('#detPoster').innerHTML = poster ? '<img alt="" src="' + IMG + 'w500' + poster + '">' : '';
+  $('#detSide').innerHTML = side;
   $('#detA').innerHTML = partA;
   $('#detB').innerHTML = partB;
   var hero = $('.det-hero', root); hero.style.backgroundImage = backdrop ? 'url("' + IMG + 'w1280' + backdrop + '")' : '';
@@ -1503,8 +1528,11 @@ function renderDetail() {
     tr.dataset.v = vkey; tr.hidden = !vkey;
     tr.innerHTML = vkey ? '<h3>Tráiler</h3><button class="trailer-thumb" type="button" data-trailer="' + vkey + '" aria-label="Reproducir el tráiler acá"><img alt="" loading="lazy" src="https://i.ytimg.com/vi/' + vkey + '/hqdefault.jpg"><span class="trailer-play" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg></span></button>' : '';
   }
+  syncDlgBack();
+  Object.keys(keepVals).forEach(function (id) { var x = document.getElementById(id); if (x) x.value = keepVals[id]; });
   var ni = $('#dNewName');
-  if (ni) { if (typedVal) ni.value = typedVal; if (typedFocus || D.focusNew) { ni.focus(); D.focusNew = false; } }
+  if (ni && D.focusNew) { ni.focus(); D.focusNew = false; }
+  else if (focusedId) { var fx = document.getElementById(focusedId); if (fx && fx.tagName === 'INPUT') fx.focus(); }
 }
 function playTrailer(key) {
   var tr = $('#detTrailer'); if (!tr || !/^[A-Za-z0-9_-]{6,20}$/.test(key)) return;
@@ -1617,6 +1645,74 @@ async function loadAll(more) {
   if (state.all === A) refresh(true);
 }
 
+/* ---------- otra tanda: al llegar al final de lo que hay, se le piden a TMDB más títulos de tus
+   servicios que cumplan los filtros puestos (género, años, duración, rating de TMDB, orden) ---------- */
+var EXT = { sig: '', pages: {}, done: {}, loading: false, end: false, rounds: 0, autoSig: '' };
+function canExtend() { return ctxMine() && !!state.catalogs[state.ui.type] && !!state.settings.tmdbKey && !state.fatal; }
+function extServices() { var on = new Set(state.f.services); return SERVICES.filter(function (x) { return on.has(x.key); }); }
+function extSig() { var t = state.ui.type; return t + '|' + stable(allParams(t)) + '|' + extServices().map(function (x) { return x.key; }).join(','); }
+function extEnded() { return EXT.sig === extSig() && EXT.end; }
+function extMoreButton(more) {
+  if (!canExtend()) return;
+  more.hidden = false;
+  if (extEnded()) { more.textContent = 'No hay más en tus servicios con estos filtros'; more.disabled = true; return; }
+  more.disabled = !!EXT.loading;
+  more.textContent = EXT.loading ? 'Buscando más en tus servicios…' : 'Buscar más en tus servicios';
+}
+async function extendCatalog() {
+  if (!canExtend() || EXT.loading) return;
+  var type = state.ui.type, sig = extSig();
+  if (EXT.sig !== sig) { EXT.sig = sig; EXT.pages = {}; EXT.done = {}; EXT.end = false; EXT.rounds = 0; }
+  if (EXT.end) return;
+  EXT.loading = true; extMoreButton($('#more'));
+  var before = state.filtered.length, added = [];
+  try {
+    var prov = await loadProviders(type), base = allParams(type);
+    base.watch_region = state.settings.region; base.with_watch_monetization_types = 'flatrate|ads|free';
+    for (var round = 0; round < 4 && !EXT.end; round++) {
+      var svcs = extServices().filter(function (x) { return !EXT.done[x.key]; });
+      if (!svcs.length) { EXT.end = true; break; }
+      var res = await Promise.all(svcs.map(function (x) {
+        var page = (EXT.pages[x.key] || 0) + 1;
+        return tmdb('/discover/' + type, Object.assign({}, base, { with_watch_providers: (prov[x.key] || x.fb).join('|'), page: page }))
+          .then(function (d) { EXT.pages[x.key] = page; if (!d.results || !d.results.length || page >= Math.min(d.total_pages || 1, 500)) EXT.done[x.key] = true; return [x.key, d.results || []]; },
+            function (e) { if (e.fatal) throw e; EXT.done[x.key] = true; return [x.key, []]; });
+      }));
+      if (EXT.sig !== extSig() || state.ui.type !== type) return;
+      var cat = state.catalogs[type], idx = catIndex(type);
+      res.forEach(function (pair) {
+        pair[1].forEach(function (r) {
+          var k = itemKey(type, r.id), it = idx.get(k);
+          if (it) { if (it.s.indexOf(pair[0]) < 0) it.s.push(pair[0]); return; }
+          it = norm(r, type); it.s = [pair[0]]; cat.items.push(it); idx.set(k, it); added.push(it);
+        });
+      });
+      EXT.rounds++;
+      if (applyFilters(added).length >= 12) break;
+    }
+    if (added.length) { saveCatalogSoon(type); }
+    if (extServices().every(function (x) { return EXT.done[x.key]; })) EXT.end = true;
+  } catch (e) {
+    if (e.fatal) { fatal(e); return; }
+    toast(e.message);
+  } finally { EXT.loading = false; }
+  refresh(true);
+  ratingsForFilter();
+  var got = state.filtered.length - before;
+  if (got > 0) toast('Sumé ' + got + (got === 1 ? ' título' : ' títulos') + ' más de tus servicios.');
+}
+var saveCatalogSoon = debounce(function (type) { var c = state.catalogs[type]; if (c) LS.set('catalog.' + type, c); }, 2000);
+/* con un mínimo de IMDb, Rotten Tomatoes o Metacritic, se traen esos puntajes para lo que cumple
+   el resto de los filtros (si no, quedan afuera por falta de dato, no por puntaje) */
+var ratingsForFilter = debounce(function () {
+  var f = state.f;
+  if (!(f.ratingMin > 0) || f.ratingSrc === 'tmdb' || f.ratingSrc === 'avg' || !state.settings.omdbKey || state.omdbStop) return;
+  if (state.ui.view === 'profile') return;
+  var left = 1000 - omdbUsage().n; if (left < 60) return;
+  var cand = applyFilters(currentPool(), true).filter(function (it) { var sc = scoresOf(it); return !sc.omdbDone && !sc.noImdb; });
+  if (cand.length) wantRatings(cand.slice(0, Math.min(300, left - 50)));
+}, 600);
+
 /* ---------- personas ---------- */
 /* rol de un crédito de equipo: dirección, guion, música o fotografía */
 function CREW_ROLE(c) {
@@ -1721,15 +1817,18 @@ var personSearch = debounce(async function (q) {
 /* ---------- barra de vistas especiales ---------- */
 function renderSpecialBar() {
   var bar = $('#specialBar'), sp = state.special;
-  bar.hidden = !sp || sp.kind === 'search' || !!sp.error;
+  bar.hidden = !sp;
   if (bar.hidden) { bar.innerHTML = ''; return; }
+  /* siempre hay cómo volver (en iPhone, como app, no hay botón Atrás del sistema) */
+  var back = '<button class="btn-back" type="button" data-back aria-label="Volver">' + ICON.back + '<span>Volver</span></button>';
+  if (sp.kind === 'search' || sp.error) { bar.innerHTML = back + (sp.kind === 'search' ? '<p class="seeds">Resultados para <b>' + esc(sp.q) + '</b></p>' : ''); return; }
   if (sp.kind === 'person') {
     var tabs = sp.tabs ? ROLES.filter(function (t) { return sp.tabs[t].length; }) : [];
-    bar.innerHTML = (tabs.length > 1 ? '<div class="seg seg-wrap" role="group" aria-label="Rol">' + tabs.map(function (t) { return '<button type="button" data-ptab="' + t + '" aria-pressed="' + (sp.tab === t) + '">' + ROLE_LABEL[t] + ' <span class="n">' + sp.tabs[t].length + '</span></button>'; }).join('') + '</div>' :
+    bar.innerHTML = back + (tabs.length > 1 ? '<div class="seg seg-wrap" role="group" aria-label="Rol">' + tabs.map(function (t) { return '<button type="button" data-ptab="' + t + '" aria-pressed="' + (sp.tab === t) + '">' + ROLE_LABEL[t] + ' <span class="n">' + sp.tabs[t].length + '</span></button>'; }).join('') + '</div>' :
       tabs.length === 1 ? '<p class="seeds">' + ROLE_LABEL[tabs[0]] + ' · ' + sp.tabs[tabs[0]].length + (sp.tabs[tabs[0]].length === 1 ? ' título' : ' títulos') + '</p>' : '') +
       '<span class="grow"></span>' + (sp.loading ? '' : '<button class="btn btn-accent" type="button" data-pfest="retro">' + ICON.ticket + 'Retrospectiva</button><button class="btn" type="button" data-pfest="onda">Festival en su onda</button><button class="btn" type="button" data-pfilter>Filtrar mi cartelera por ' + esc(sp.title) + '</button>');
   } else if (sp.kind === 'reco') {
-    bar.innerHTML = '<p class="seeds">A partir de ' + sp.seeds.map(function (s) { return '<b>' + esc(s.t) + '</b>'; }).join(', ') + '</p><span class="grow"></span>' +
+    bar.innerHTML = back + '<p class="seeds">A partir de ' + sp.seeds.map(function (s) { return '<b>' + esc(s.t) + '</b>'; }).join(', ') + '</p><span class="grow"></span>' +
       (sp.loading ? '' : '<button class="btn btn-accent" type="button" data-mkradio>Armar festival</button>');
   }
 }
@@ -3046,14 +3145,37 @@ function navSoon() {
   NAV.queued = true;
   Promise.resolve().then(function () { NAV.queued = false; navSync(); });
 }
+/* en la ficha, «Volver» aparece cuando atrás hay otra pantalla abierta (por ejemplo, el acomodador) */
+function navPrevDialog() { var p = NAV.armed && NAV.idx > 1 ? NAV.entries[NAV.idx - 1] : null; return !!(p && p.dialog); }
+function syncDlgBack() { $$('.dlg-back').forEach(function (b) { b.hidden = !navPrevDialog(); }); }
 function navSync() {
   if (NAV.applying || !NAV.armed) return;
   var s = navSnap(), cur = NAV.entries[NAV.idx];
-  if (navSame(s, cur)) return;
+  if (navSame(s, cur)) { syncDlgBack(); return; }
   var prev = NAV.idx > 1 ? NAV.entries[NAV.idx - 1] : null;
   if (prev && navSame(s, prev)) { NAV.idx--; NAV.skip++; history.back(); return; }
   NAV.entries = NAV.entries.slice(0, NAV.idx + 1); NAV.entries.push(s); NAV.idx++;
   try { history.pushState({ wl: NAV.idx }, ''); } catch (e) {}
+  syncDlgBack();
+}
+/* volver: lo mismo que el Atrás de Android; en iPhone instalada, también deslizando desde el borde izquierdo */
+function goBack() {
+  if (navBack()) return true;
+  var top = null; NAV_DIALOGS.forEach(function (id) { var d = document.getElementById(id); if (!top && d && d.open) top = d; });
+  if (top) { closeDialog(top); return true; }
+  if (document.body.classList.contains('rail-open')) { closeRail(); return true; }
+  if (state.special) { state.special = null; refresh(); window.scrollTo(0, 0); return true; }
+  return false;
+}
+function edgeSwipeBack() {
+  if (!(isIOS() && isStandalone())) return;
+  var st = null;
+  document.addEventListener('touchstart', function (e) { var t = e.touches[0]; st = t && e.touches.length === 1 && t.clientX < 24 ? { x: t.clientX, y: t.clientY, at: Date.now() } : null; }, { passive: true });
+  document.addEventListener('touchend', function (e) {
+    var t = e.changedTouches[0]; if (!st || !t) return;
+    var dx = t.clientX - st.x, dy = Math.abs(t.clientY - st.y), quick = Date.now() - st.at < 700; st = null;
+    if (dx > 70 && dy < 60 && quick) goBack();
+  }, { passive: true });
 }
 /* la primera entrada se crea con un toque del usuario (Chrome saltea las que se crean sin interacción) */
 function navArm() {
@@ -3864,6 +3986,7 @@ function bind() {
     if (t.closest('[data-go="catalog"]')) { setView('catalog'); return; }
     if (t.closest('[data-retry]')) { showBanner(''); start(); return; }
     if (t.closest('[data-back]')) { backFromSpecial(); return; }
+    if (t.closest('[data-goback]')) { goBack(); return; }
   });
 
   grid.addEventListener('click', function (e) {
@@ -3877,13 +4000,15 @@ function bind() {
   });
 
   /* lists bar */
-  $('#listbar').addEventListener('click', function (e) {
+  var listbarClick = function (e) {
     var p = e.target.closest('[data-list]');
     if (p) { state.ui.list = p.dataset.list; state.listEdit = null; state.confirmDelete = null; refresh(); return; }
     var pk = e.target.closest('[data-pick]');
     if (pk) { state.shareSel = state.shareSel || new Set(); var u = pk.dataset.pick; if (state.shareSel.has(u)) state.shareSel.delete(u); else state.shareSel.add(u); renderListbar(); return; }
     var sm = e.target.closest('.rumbo-more summary');
     if (sm) { state.rumboMoreOpen = !sm.parentNode.open; return; }
+    var rs = e.target.closest('summary.rumbo-s');
+    if (rs) { state.rumboOpen = !rs.parentNode.open; return; }
     var rb = e.target.closest('[data-rumbo]');
     if (rb) {
       var rl = getList(state.ui.list); if (!rl) return;
@@ -3925,14 +4050,21 @@ function bind() {
       return;
     }
     if (e.target.closest('[data-cancel]')) { state.listEdit = null; renderListbar(); }
-  });
-  $('#listbar').addEventListener('submit', function (e) {
+  };
+  $('#listbar').addEventListener('click', listbarClick);
+  $('#listtools').addEventListener('click', listbarClick);
+
+  var listbarSubmit = function (e) {
     e.preventDefault();
     var form = e.target, inp = $('input', form), name = inp.value.trim(); if (!name) return;
     if (form.dataset.form === 'new') { var l = createList(name); if (l) state.ui.list = l.id; }
     else { var cur = getList(state.ui.list); if (cur) renameList(cur, name); }
     state.listEdit = null; refresh();
-  });
+  };
+  $('#listbar').addEventListener('submit', listbarSubmit);
+  $('#listtools').addEventListener('submit', listbarSubmit);
+  /* un toque afuera cierra el menú «⋯» de la lista */
+  document.addEventListener('click', function (e) { var o = document.querySelector('details.lmore[open]'); if (o && e.target.isConnected && !o.contains(e.target)) { o.open = false; if (state.confirmDelete) { state.confirmDelete = null; renderListbar(); } } });
 
   /* list menu */
   $('#menuItems').addEventListener('click', function (e) {
@@ -3964,6 +4096,10 @@ function bind() {
     if (e.target === dd) { closeDialog(dd); return; }
     var D = state.detail; if (!D) return;
     var it = D.it;
+    /* un toque afuera cierra el menú abierto (Agregar a / Más) */
+    var openPop = $('details.dpop[open]', dd);
+    if (openPop && !openPop.contains(e.target)) { openPop.open = false; D.pop = null; if (!e.target.closest('summary')) return; }
+    if (e.target.closest('.dpop-panel [data-dact]')) D.pop = null;
     if (e.target.closest('[data-close]')) { closeDialog(dd); return; }
     if (e.target.closest('[data-repick]')) { pickOne(); return; }
     var pb = e.target.closest('[data-person]');
@@ -3997,7 +4133,22 @@ function bind() {
     var tb = e.target.closest('[data-trailer]');
     if (tb) { playTrailer(tb.dataset.trailer); return; }
   });
+  dd.addEventListener('toggle', function (e) {
+    var dt = e.target; if (!dt.matches || !dt.matches('details.dpop') || !state.detail) return;
+    if (dt.open) { state.detail.pop = dt.dataset.pop; $$('details.dpop[open]', dd).forEach(function (o) { if (o !== dt) o.open = false; }); }
+    else if (state.detail.pop === dt.dataset.pop) state.detail.pop = null;
+  }, true);
   dd.addEventListener('submit', function (e) {
+    var pf = e.target.closest('[data-dpopform]');
+    if (pf) {
+      e.preventDefault();
+      var D0 = state.detail, pin = $('#dPopName'); if (!D0 || !pin) return;
+      var nl = createList(pin.value); if (!nl) { pin.focus(); return; }
+      toggleList(nl.id, D0.it, true); pin.value = '';
+      toast('Lista «' + nl.name + '» creada con este título.');
+      renderDetail(); updateCard(D0.it.k); if (state.ui.view === 'lists') refreshSoon();
+      return;
+    }
     var form = e.target.closest('[data-dnewform]'); if (!form) return;
     e.preventDefault();
     var D = state.detail, inp = $('#dNewName'); if (!D || !inp) return;
@@ -4144,6 +4295,7 @@ function registerSW() {
 
 function boot() {
   navInit();
+  edgeSwipeBack();
   applyTheme();
   dropLegacyHash();
   renderDuoBtn();
@@ -4166,6 +4318,6 @@ function boot() {
   start();
 }
 
-if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') window.__cartelera = { state: state, refresh: refresh, scoreFor: scoreFor, recommend: recommend, curFind: curFind, cur: function () { return CUR; }, openFest: openFest, openGuide: openGuide, rumboOf: rumboOf, rumboOut: rumboOut, itemLabels: itemLabels, openDuo: openDuo, packTaste: packTaste, unpackTaste: unpackTaste, comps: function () { return COMP; }, cloud: function () { return CLOUD; }, cloudSyncModel: cloudSyncModel, allComps: allComps, seenNow: seenNow, guide: function () { return state.guide; }, tasteProfile: tasteProfile, tasteSeeds: tasteSeeds, openReco: openReco, openPerson: openPerson, allSig: allSig, mergeUsers: mergeUsers, normUser: normUser, contentKey: contentKey, listKeys: listKeys, services: function () { return { list: SERVICES, stremio: STREMIO_ON, sig: SVC_SIG }; }, st: function () { return ST; }, isHidden: isHidden, hiddenKeys: hiddenKeys, serviceCatalog: serviceCatalog, summarizeStreams: summarizeStreams, createRadio: createRadio, seedKeys: seedKeys };
+if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') window.__cartelera = { state: state, refresh: refresh, scoreFor: scoreFor, recommend: recommend, curFind: curFind, cur: function () { return CUR; }, openFest: openFest, openGuide: openGuide, rumboOf: rumboOf, rumboOut: rumboOut, itemLabels: itemLabels, openDuo: openDuo, packTaste: packTaste, unpackTaste: unpackTaste, comps: function () { return COMP; }, cloud: function () { return CLOUD; }, cloudSyncModel: cloudSyncModel, allComps: allComps, seenNow: seenNow, guide: function () { return state.guide; }, tasteProfile: tasteProfile, tasteSeeds: tasteSeeds, openReco: openReco, openPerson: openPerson, allSig: allSig, mergeUsers: mergeUsers, normUser: normUser, contentKey: contentKey, listKeys: listKeys, services: function () { return { list: SERVICES, stremio: STREMIO_ON, sig: SVC_SIG }; }, st: function () { return ST; }, isHidden: isHidden, hiddenKeys: hiddenKeys, serviceCatalog: serviceCatalog, summarizeStreams: summarizeStreams, createRadio: createRadio, seedKeys: seedKeys, ext: function () { return EXT; } };
 boot();
 })();

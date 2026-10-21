@@ -165,6 +165,7 @@
       <h2 class="count" id="count"></h2>
       <div class="resbar-r"><span id="enrichNote"></span><button class="btn" id="reflowBtn" type="button" hidden>Reordenar con datos nuevos</button><button class="btn" id="globalBtn" type="button" hidden></button></div>
     </div>
+    <div class="listtools" id="listtools" hidden></div>
     <div class="banner" id="banner" hidden></div>
     <div class="grid" id="grid"></div>
     <button class="btn more" id="more" type="button" hidden>Mostrar más</button>
@@ -194,7 +195,7 @@
 
 <dialog id="dlgDuo" aria-labelledby="duoTitle">
   <div class="guide">
-    <button class="dlg-x" type="button" data-close aria-label="Cerrar"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+    <div class="dlg-bar"><button class="dlg-x" type="button" data-close aria-label="Cerrar"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
     <h2 class="duo-title" id="duoTitle">De a dos</h2>
     <div id="duoBody"></div>
   </div>
@@ -202,14 +203,14 @@
 
 <dialog id="dlgGuide" aria-labelledby="guideSay">
   <div class="guide">
-    <button class="dlg-x" type="button" data-close aria-label="Cerrar"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+    <div class="dlg-bar"><button class="dlg-x" type="button" data-close aria-label="Cerrar"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
     <div id="guideBody" aria-live="polite"></div>
   </div>
 </dialog>
 
 <dialog id="dlgFest" aria-labelledby="festTitle">
   <div class="fest-top">
-    <button class="dlg-x" type="button" data-close aria-label="Cerrar"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+    <div class="dlg-bar"><button class="dlg-x" type="button" data-close aria-label="Cerrar"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
     <h2 id="festTitle">Festivales</h2>
     <nav class="fest-nav" id="festNav" aria-label="Géneros"></nav>
   </div>
@@ -239,7 +240,7 @@
 
 <dialog id="dlgSettings" aria-labelledby="setTitle">
   <form class="set" id="setForm" autocomplete="off">
-    <button class="dlg-x" type="button" data-close aria-label="Cerrar"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+    <div class="dlg-bar"><button class="dlg-x" type="button" data-close aria-label="Cerrar"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
     <h2 id="setTitle">Ajustes</h2>
 
     <fieldset id="keysSet">
