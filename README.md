@@ -5,7 +5,7 @@ Catálogo personal de tus servicios de streaming en Argentina (Netflix, Prime Vi
 ## Seguridad
 
 - El repositorio no contiene ninguna clave. Las claves de TMDB, OMDb y el token de GitHub se guardan solo en el navegador de cada dispositivo.
-- La página tiene una política de seguridad de contenido estricta: no ejecuta scripts de terceros ni código embebido, y solo se conecta con TMDB, OMDb, GitHub, Firebase y Torrentio. El único contenido externo embebido es el reproductor de tráileres de YouTube (dominio sin cookies, en un marco aislado).
+- La página tiene una política de seguridad de contenido estricta: no ejecuta scripts de terceros ni código embebido, y solo se conecta con TMDB, OMDb, GitHub, Firebase, Torrentio y el Worker propio que consulta JustWatch. El único contenido externo embebido es el reproductor de tráileres de YouTube (dominio sin cookies, en un marco aislado).
 - Las listas se sincronizan en un Gist secreto. El token de GitHub necesita únicamente el permiso **Gists: Read and write**.
 - Si perdés un dispositivo, revocá el token en GitHub (Settings → Developer settings → Personal access tokens) y creá uno nuevo.
 
@@ -74,7 +74,11 @@ En **Perfil → Tus servicios** se prenden los que tenés, de la lista de servic
 
 Con Stremio prendido en Tus servicios, cada título que aparece en pantalla se consulta en Torrentio, el addon de Stremio. Si tiene fuentes, la tarjeta muestra **Stremio** con la mejor calidad (y **LAT** si hay audio latino) y la ficha detalla calidad, HDR o Dolby Vision, audio latino, castellano o multiaudio, y botones para abrir en Stremio. Si no hay nada, no se muestra. Las consultas van de a dos, solo para lo visible, y quedan guardadas unos días en el dispositivo. Torrentio ve qué títulos consultás y desde qué IP; se apaga con el mismo botón.
 
-Idioma y calidad de Netflix, Prime y los demás: TMDB no lo informa. La ficha tiene un link a JustWatch para revisarlo ahí.
+## Calidad e idiomas por servicio (JustWatch)
+
+La ficha muestra, por cada servicio, la mejor calidad (SD, HD, 4K), Dolby Vision o HDR, Atmos o 5.1, y los idiomas de audio y subtítulos. Marca **Solo doblada** cuando una peli que no es en español solo tiene audio en español, y **Sin audio en español** cuando no lo tiene. El dato es de JustWatch; algunos servicios (Netflix, por ejemplo) no informan idiomas.
+
+JustWatch no deja que otras páginas lo consulten desde el navegador, así que la app le pregunta a un Worker de Cloudflare propio (`tools/justwatch-worker.js`): solo le responde a esta página, no usa claves y guarda cada respuesta un día. Para instalarlo: Cloudflare → Workers & Pages → Create Worker, pegar el archivo y publicar. Su dirección va en `JW_PROXY` (`app.js`) y en `connect-src` de `index.html`. Sin Worker configurado, la ficha muestra la lista simple de servicios y un link a JustWatch.
 
 ## Ocultar lo que no te interesa
 

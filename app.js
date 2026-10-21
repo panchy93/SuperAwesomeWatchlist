@@ -680,6 +680,89 @@ function stremioLangs(r) {
   return out;
 }
 
+/* ---------- JustWatch (calidad e idiomas por servicio, vía tu Worker de Cloudflare) ----------
+   JustWatch no deja que otras páginas lo consulten desde el navegador, así que se le pregunta a
+   un Worker propio (tools/justwatch-worker.js) que solo le responde a esta página. Se pide al abrir
+   una ficha, y la respuesta queda guardada unos días en el dispositivo. */
+var JW_PROXY = '';
+var JW_LANG_RE = /^[a-z]{2,3}(-[A-Za-z0-9]{2,4})?$/, JW_TECH_RE = /^[A-Z0-9_]{2,30}$/;
+var JW_LANG = { es: 'español', en: 'inglés', pt: 'portugués', fr: 'francés', it: 'italiano', de: 'alemán', ja: 'japonés', ko: 'coreano', zh: 'chino', cmn: 'chino', yue: 'cantonés', hi: 'hindi', ru: 'ruso', pl: 'polaco', nl: 'neerlandés', sv: 'sueco', da: 'danés', no: 'noruego', nb: 'noruego', fi: 'finlandés', tr: 'turco', ar: 'árabe', he: 'hebreo', th: 'tailandés', id: 'indonesio', ms: 'malayo', cs: 'checo', hu: 'húngaro', ro: 'rumano', el: 'griego', uk: 'ucraniano', ca: 'catalán', eu: 'euskera', gl: 'gallego', ta: 'tamil', te: 'telugu', vi: 'vietnamita', fil: 'filipino', tl: 'tagalo', bg: 'búlgaro', hr: 'croata', sr: 'serbio', sk: 'eslovaco', sl: 'esloveno', lt: 'lituano', lv: 'letón', et: 'estonio', is: 'islandés', fa: 'persa', ur: 'urdu', bn: 'bengalí' };
+function jwLangName(c) {
+  var parts = c.split('-'), base = JW_LANG[parts[0]] || parts[0].toUpperCase();
+  if (parts[0] === 'es' && parts[1]) return /^(ES)$/i.test(parts[1]) ? 'español de España' : 'español latino';
+  if (parts[0] === 'pt' && /^BR$/i.test(parts[1] || '')) return 'portugués de Brasil';
+  return base;
+}
+function jwLangs(arr, max) {
+  var rank = function (c) { return /^es/.test(c) ? 0 : /^en/.test(c) ? 1 : 2; };
+  var names = [];
+  arr.slice().sort(function (a, b) { return rank(a) - rank(b) || jwLangName(a).localeCompare(jwLangName(b), 'es'); }).forEach(function (c) { var n = jwLangName(c); if (names.indexOf(n) < 0) names.push(n); });
+  if (max && names.length > max) return names.slice(0, max).join(', ') + ' y ' + (names.length - max) + ' más';
+  return names.join(', ');
+}
+function cleanJwOffers(arr) {
+  var codes = function (a, re) { return (Array.isArray(a) ? a : []).filter(function (x) { return typeof x === 'string' && re.test(x); }).slice(0, 40); };
+  return (Array.isArray(arr) ? arr : []).slice(0, 30).map(function (o) {
+    var p = o ? Math.round(+o.p) : 0; if (!(p > 0 && p < 1e7)) return null;
+    return { p: p, n: String(o.n || '').slice(0, 60), q: Math.max(0, Math.min(3, Math.round(+o.q) || 0)), a: codes(o.a, JW_LANG_RE), s: codes(o.s, JW_LANG_RE), v: codes(o.v, JW_TECH_RE), au: codes(o.au, JW_TECH_RE) };
+  }).filter(Boolean);
+}
+function pruneJw(o) {
+  var out = {}, t = Date.now();
+  Object.keys(o || {}).forEach(function (k) { var v = o[k]; if (validKey(k) && v && +v.at > 0 && t - v.at < (v.f ? 3 : 1) * DAY) out[k] = { at: +v.at, f: !!v.f, o: cleanJwOffers(v.o) }; });
+  return out;
+}
+var JW = { cache: pruneJw(LS.get('jw', {})), loading: {}, fails: 0, off: false };
+var saveJwSoon = debounce(function () {
+  var keys = Object.keys(JW.cache);
+  if (keys.length > 600) keys.sort(function (a, b) { return JW.cache[a].at - JW.cache[b].at; }).slice(0, keys.length - 600).forEach(function (k) { delete JW.cache[k]; });
+  LS.set('jw', JW.cache);
+}, 1500);
+async function wantJw(it, full) {
+  if (!JW_PROXY || JW.off || !full || JW.cache[it.k] || JW.loading[it.k]) return;
+  JW.loading[it.k] = true;
+  var y = parseInt(String(full.release_date || full.first_air_date || '').slice(0, 4), 10) || it.y || '';
+  var url = JW_PROXY + '/?tmdb=' + (+it.id) + '&type=' + (it.type === 'tv' ? 'tv' : 'movie') +
+    '&ot=' + encodeURIComponent(String(full.original_title || full.original_name || '').slice(0, 120)) +
+    '&t=' + encodeURIComponent(String(full.title || full.name || it.t || '').slice(0, 120)) + (y ? '&y=' + y : '');
+  try {
+    var res = await fetch(url, { credentials: 'omit', referrerPolicy: 'no-referrer' });
+    if (!res.ok) throw AppError('jw', 'JustWatch respondió ' + res.status);
+    var j = await res.json();
+    JW.cache[it.k] = { at: Date.now(), f: !!(j && j.found), o: cleanJwOffers(j && j.offers) }; JW.fails = 0; saveJwSoon();
+  } catch (e) {
+    if (++JW.fails >= 3) JW.off = true;
+  } finally {
+    delete JW.loading[it.k];
+    if (state.detail && state.detail.k === it.k) renderDetail();
+  }
+}
+/* una fila por servicio: calidad, imagen y sonido, idiomas de audio y subtítulos */
+function jwRowsHTML(it, origLang) {
+  var r = JW.cache[it.k]; if (!r || !r.f || !r.o.length) return '';
+  var groups = [], byKey = {};
+  r.o.forEach(function (o) {
+    var svc = servicesForIds(it.type, [o.p])[0], key = svc || 'p' + o.p, g = byKey[key];
+    if (!g) { g = byKey[key] = { svc: svc, name: svc ? SVC[svc].label : o.n, q: 0, a: [], s: [], v: [], au: [] }; groups.push(g); }
+    g.q = Math.max(g.q, o.q);
+    ['a', 's', 'v', 'au'].forEach(function (f) { o[f].forEach(function (x) { if (g[f].indexOf(x) < 0) g[f].push(x); }); });
+  });
+  groups.sort(function (a, b) { return (b.svc ? 1 : 0) - (a.svc ? 1 : 0); });
+  return '<div class="jw-rows">' + groups.map(function (g) {
+    var tech = [];
+    if (g.v.indexOf('DOLBY_VISION') >= 0) tech.push('Dolby Vision'); else if (g.v.some(function (x) { return /HDR/.test(x); })) tech.push('HDR');
+    if (g.au.indexOf('DOLBY_ATMOS') >= 0) tech.push('Atmos'); else if (g.au.some(function (x) { return /5_POINT_1|7_POINT_1/.test(x); })) tech.push(g.au.some(function (x) { return /7_POINT_1/.test(x); }) ? '7.1' : '5.1');
+    var qual = [['', 'SD', 'HD', '4K'][g.q]].concat(tech).filter(Boolean).join(' · ');
+    var hasEs = g.a.some(function (x) { return /^es/.test(x); });
+    var dubOnly = g.a.length === 1 && hasEs && origLang && origLang !== 'es';
+    var info = [qual ? '<b>' + esc(qual) + '</b>' : '',
+      g.a.length ? 'Audio: ' + esc(jwLangs(g.a)) : 'Idiomas sin dato',
+      g.s.length ? 'Subtítulos: ' + esc(jwLangs(g.s, 4)) : ''].filter(Boolean).join(' · ');
+    var warn = dubOnly ? '<span class="jw-warn">Solo doblada</span>' : g.a.length && !hasEs ? '<span class="jw-warn">Sin audio en español</span>' : '';
+    return '<div class="jw-row"><span class="sb ' + (g.svc ? svcClass(g.svc) : 'dim') + '">' + esc(g.name) + '</span><span class="jw-info">' + info + '</span>' + warn + '</div>';
+  }).join('') + '</div><p class="hint jw-src">Calidad e idiomas según JustWatch; algunos servicios, como Netflix, no los informan.</p>';
+}
+
 /* ---------- scores ---------- */
 function scoresOf(it) {
   var d = state.details[it.k]; var o = d && d.imdb ? state.omdb[d.imdb] : null;
@@ -1231,7 +1314,7 @@ async function openDetail(it, pick) {
     state.detail.full = d;
     state.details[it.k] = liteFromFull(d, it.type); saveCachesSoon(); updateCard(it.k);
     if (!it.p && safePath(d.poster_path)) it.p = safePath(d.poster_path);
-    wantStremio([it], true);
+    wantStremio([it], true); wantJw(it, d);
     renderDetail();
     var imdb = state.details[it.k].imdb;
     if (state.settings.omdbKey && imdb && !state.omdb[imdb] && !state.omdbStop) {
@@ -1321,7 +1404,8 @@ function renderDetail() {
       } else if (sr && sr.cam) stremioRow = '<p class="hint">En Stremio solo hay versiones filmadas en el cine.</p>';
       else if (!sr && !ST.off) stremioRow = '<p class="hint">Buscando en Stremio…</p>';
     }
-    wtw = '<div class="dsec"><h3>Dónde verla</h3>' + (flatHtml ? '<div class="wtw">' + flatHtml + '</div>' : '<p class="hint">No está en ninguna plataforma de suscripción de tu región.</p>') + stremioRow + '</div>';
+    var jwHtml = jwRowsHTML(it, full.original_language || it.l), jwWait = JW_PROXY && !JW.off && !JW.cache[it.k] && flatHtml ? '<p class="hint">Buscando calidad e idiomas…</p>' : '';
+    wtw = '<div class="dsec"><h3>Dónde verla</h3>' + (jwHtml || (flatHtml ? '<div class="wtw">' + flatHtml + '</div>' + jwWait : '<p class="hint">No está en ninguna plataforma de suscripción de tu región.</p>')) + stremioRow + '</div>';
   }
   var vids = full ? (dig(full, 'videos.results') || []).filter(function (v) { return v.site === 'YouTube' && /Trailer|Teaser/.test(v.type) && /^[A-Za-z0-9_-]{6,20}$/.test(v.key); }) : [];
   var lang2 = state.settings.lang.slice(0, 2);
