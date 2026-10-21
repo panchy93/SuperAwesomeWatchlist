@@ -335,4 +335,56 @@ dialog[open].fallback{position:fixed;top:14px;left:0;right:0;margin:0 auto;z-ind
   .fest-body{padding:4px 16px 24px}
   .fest-secs{grid-template-columns:minmax(0,1fr)}
 }
+/* El acomodador: elegir con preguntas */
+#dlgGuide{width:min(760px,calc(100vw - 20px))}
+.guide{padding:24px 26px 26px;position:relative}
+.g-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-right:48px;min-height:38px}
+.g-who{display:flex;align-items:center;gap:8px;margin:0;font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--accent)}
+.g-who svg{width:20px;height:20px}
+.g-step{margin:0;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.g-say{font:800 34px/1.06 var(--f-display);margin:10px 0 20px;letter-spacing:.01em;text-wrap:balance}
+.g-say em{font-style:normal;color:var(--accent)}
+.g-opts{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px}
+.g-two{grid-template-columns:repeat(2,minmax(0,1fr))}
+.g-opt{display:flex;flex-direction:column;align-items:flex-start;gap:4px;text-align:left;border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:14px 16px;color:var(--fg)}
+.g-opt b{font-size:17px;font-weight:700}
+.g-opt span{font-size:13px;color:var(--muted)}
+.g-opt:hover,.g-film:hover,.g-chip:hover,.g-cposter:hover{border-color:var(--accent)}
+.g-alts{display:flex;flex-wrap:wrap;gap:6px 20px;margin-top:16px}
+.g-center{justify-content:center}
+.g-alt{border:0;background:none;padding:4px 0;color:var(--accent);font-weight:600;text-decoration:underline;text-underline-offset:3px}
+.g-note{margin:14px 0 0}
+.g-chips{display:flex;flex-wrap:wrap;gap:8px}
+.g-chip{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:9px 16px;font-weight:600;font-size:14px;color:var(--fg)}
+.g-chip.lead{border-color:var(--accent);color:var(--accent)}
+.g-chip[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.g-duel{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);gap:14px;align-items:center;max-width:560px;margin:0 auto}
+.g-vs{font:800 28px/1 var(--f-display);color:var(--muted);text-transform:uppercase}
+.g-film{display:flex;flex-direction:column;align-items:stretch;gap:6px;text-align:left;border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:10px;color:var(--fg);min-width:0}
+.g-poster{display:block;aspect-ratio:2/3;border-radius:8px;overflow:hidden;background:var(--surface-2)}
+.g-poster img{width:100%;height:100%;object-fit:cover}
+.g-film b{font-size:15px;line-height:1.25}
+.g-film > span:last-child{font-size:12.5px;color:var(--muted);line-height:1.35}
+.g-rows{display:flex;flex-direction:column;gap:16px}
+.g-row{display:flex;flex-direction:column;gap:8px}
+.g-row .rlabel{margin:0}
+.g-foot{display:flex;flex-wrap:wrap;gap:8px;margin-top:22px;align-items:center}
+.g-res{display:flex;flex-direction:column;gap:12px}
+.g-card{display:grid;grid-template-columns:116px minmax(0,1fr);gap:16px;border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:12px}
+.g-cposter{border:1px solid transparent;padding:0;background:var(--surface-2);border-radius:8px;overflow:hidden;aspect-ratio:2/3;display:block}
+.g-cposter img{width:100%;height:100%;object-fit:cover}
+.g-cmeta{display:flex;flex-direction:column;gap:5px;min-width:0}
+.g-cmeta h3{margin:0;font-size:19px;line-height:1.2}
+.g-top{margin:0;font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--accent)}
+.g-cacts{display:flex;flex-wrap:wrap;gap:8px;margin-top:auto;padding-top:8px}
+@media (max-width:560px){
+  .guide{padding:20px 16px 20px}
+  .g-say{font-size:28px}
+  .g-two{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+  .g-opts{grid-template-columns:minmax(0,1fr)}
+  .g-opts.g-two{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+  .g-duel{gap:8px}
+  .g-vs{font-size:20px}
+  .g-card{grid-template-columns:90px minmax(0,1fr);gap:12px}
+}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}

@@ -155,7 +155,7 @@ var state = {
   ui: Object.assign({ view: 'catalog', type: 'movie', list: 'watchlist', source: 'mine', sortCatalog: 'rating', sortLists: 'added', sortReco: 'match', sortPerson: 'year' }, LS.get('ui', {})),
   f: Object.assign(defaultFilters(), LS.get('filters', {})),
   q: '',
-  festDraft: [], festAc: [],
+  festDraft: [], festAc: [], guide: null,
   catalogs: { movie: null, tv: null },
   catIdx: { movie: null, tv: null },
   loading: { movie: null, tv: null },
@@ -699,6 +699,7 @@ function cardHTML(it) {
 }
 function cardEl(k) { var found = null; $$('.card[data-k]', grid).some(function (c) { if (c.dataset.k === k) { found = c; return true; } return false; }); return found; }
 function updateCard(k) {
+  if (state.guide && state.guide.step === 'results') guideRefreshSoon();
   if (!grid) return;
   var el = cardEl(k); if (!el) return;
   var it = state.index.get(k); if (!it) return;
@@ -1676,6 +1677,322 @@ async function radioMore(l) {
   finally { state.radioBusy = false; refresh(true); }
 }
 
+/* ---------- el acomodador: te ayuda a elegir con preguntas ----------
+   Pregunta tipo, ganas y género; después hace duelos A/B entre títulos de la curaduría
+   para ubicar subgénero y tono, y al final época, duración y dónde verla. Con eso arma un
+   perfil de etiquetas con peso, elige títulos base y corre el mismo motor de
+   recomendaciones, que ya tiene en cuenta tus vistas y estrellas. Con suficientes
+   puntajes ofrece elegir "a ciegas", directo desde tu gusto. */
+var GUIDE_MOODS = [
+  { k: 'light', label: 'Algo liviano', sub: 'para reírme o pasarla bien', ton: ['luminoso', 'divertido', 'tierno', 'ingenioso', 'ludico', 'romantico'], g: { movie: [35, 10749, 16, 12, 10751], tv: [35, 16] } },
+  { k: 'tense', label: 'Tensión', sub: 'que me tenga al borde del sillón', ton: ['tenso', 'angustiante', 'frenetico', 'visceral', 'sombrio'], g: { movie: [53, 27, 80, 28], tv: [80, 9648, 10759] } },
+  { k: 'think', label: 'Para pensar', sub: 'que me deje dando vueltas', ton: ['cerebral', 'contemplativo', 'lento'], g: { movie: [18, 878, 9648, 99], tv: [18, 9648, 99] } },
+  { k: 'heart', label: 'Emoción', sub: 'que me toque el corazón', ton: ['emotivo', 'agridulce', 'nostalgico', 'tierno', 'melancolico', 'romantico'], g: { movie: [18, 10749, 10402], tv: [18] } },
+  { k: 'weird', label: 'Algo raro', sub: 'que me vuele la cabeza', ton: ['bizarro', 'onirico', 'perturbador'], subs: ['surrealista', 'absurdo', 'psicodelico', 'cosmico'], g: { movie: [14, 878, 27, 9648], tv: [10765, 9648] } },
+  { k: 'any', label: 'Me da igual', sub: 'sorprendeme', ton: [], g: null }
+];
+var GUIDE_GROUP_GENRES = {
+  'Terror': { movie: [27], tv: [9648, 10765] }, 'Ciencia ficción': { movie: [878], tv: [10765] },
+  'Thriller y crimen': { movie: [53, 80, 9648], tv: [80, 9648] }, 'Drama': { movie: [18], tv: [18] },
+  'Comedia': { movie: [35], tv: [35] }, 'Romance': { movie: [10749], tv: [18] }, 'Animación': { movie: [16], tv: [16] },
+  'Acción y aventura': { movie: [28, 12], tv: [10759] }, 'Fantasía': { movie: [14], tv: [10765] },
+  'Bélico': { movie: [10752], tv: [10768] }, 'Western': { movie: [37], tv: [37] }, 'Música': { movie: [10402], tv: [] },
+  'Documental': { movie: [99], tv: [99] }
+};
+var GUIDE_ERAS = { any: {}, classic: { to: 1979 }, mid: { from: 1980, to: 1999 }, modern: { from: 2000 } };
+var GUIDE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 9.5h7l3.5-3v11l-3.5-3h-7z"/><path d="M17 8l3-2M17.5 12H21M17 16l3 2"/></svg>';
+function guideNew() { return { at: Date.now(), step: 'start', type: 'movie', mood: null, group: null, round: 0, T: {}, used: [], picked: [], era: 'any', rt: 0, where: state.ui.source === 'all' ? 'all' : 'mine', blind: false, salt: String(Math.random()), hist: [], res: null, shown: 0 }; }
+function guideSnap(g) { return JSON.stringify({ step: g.step, type: g.type, mood: g.mood, group: g.group, round: g.round, T: g.T, used: g.used, picked: g.picked, era: g.era, rt: g.rt, where: g.where, blind: g.blind }); }
+function guidePush() { var g = state.guide; g.hist.push(guideSnap(g)); }
+function guideBack() { var g = state.guide, h = g.hist.pop(); if (!h) return; Object.assign(g, JSON.parse(h), { res: null, shown: 0 }); renderGuide(); }
+function guideMood(k) { return GUIDE_MOODS.filter(function (m) { return m.k === k; })[0] || null; }
+function guideSecs(g) { if (!g.group || !CUR) return null; var gr = CUR.groups.filter(function (x) { return x[0] === g.group; })[0]; return gr ? gr[1] : null; }
+function guideGenres(g) { if (!g.group) return null; var x = GUIDE_GROUP_GENRES[g.group]; return x ? x[g.type] : null; }
+function guidePool(g) {
+  if (!CUR) return [];
+  var secs = guideSecs(g);
+  return CUR.films.filter(function (f) { return (g.type === 'tv') === !!f.tv && (!secs || secs.indexOf(f.sec) >= 0); });
+}
+function guideLabels(f) {
+  var o = {};
+  f.sub.forEach(function (v) { o['s:' + v] = 1; }); f.tem.forEach(function (v) { o['t:' + v] = 0.6; }); f.ton.forEach(function (v) { o['o:' + v] = 0.9; });
+  return o;
+}
+function guideAdd(T, f, w) { var L = guideLabels(f); Object.keys(L).forEach(function (k) { T[k] = (T[k] || 0) + L[k] * w; }); }
+function guideFit(T, f) { var L = guideLabels(f), ks = Object.keys(L), s = 0; ks.forEach(function (k) { s += (T[k] || 0) * L[k]; }); return s / Math.sqrt(ks.length || 1); }
+function guideFame(f) { return Math.min(1, (CUR.rel.get(f.id) || new Set()).size / 8); }
+function guideJit(g, id) { var h = 7, s = id + g.salt; for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return Math.abs(h % 1000) / 1000; }
+/* dos títulos conocidos, bien distintos entre sí, entre los que mejor encajan hasta ahora */
+function guidePair(g) {
+  var films = guidePool(g).filter(function (f) { return g.used.indexOf(f.id) < 0; });
+  if (films.length < 2) return null;
+  var top = films.map(function (f) { return { f: f, s: guideFit(g.T, f) + 0.6 * guideFame(f) + 0.3 * guideJit(g, f.id) }; })
+    .sort(function (a, b) { return b.s - a.s; }).slice(0, 14);
+  var best = null, bs = -Infinity;
+  for (var i = 0; i < top.length; i++) for (var j = i + 1; j < top.length; j++) {
+    var a = top[i].f, b = top[j].f;
+    var d = 1 - curSim(a, b) + (a.sec !== b.sec ? 0.25 : 0) + 0.15 * (top[i].s + top[j].s) - (curRel(a, b) ? 0.3 : 0);
+    if (d > bs) { bs = d; best = [a, b]; }
+  }
+  if (best && guideJit(g, best[0].id + best[1].id) > 0.5) best.reverse();
+  return best;
+}
+function guideDuel(v) {
+  var g = state.guide, pair = g.pair; if (!pair) return;
+  guidePush();
+  if (v === 'a' || v === 'b') {
+    var win = v === 'a' ? pair[0] : pair[1], lose = v === 'a' ? pair[1] : pair[0];
+    guideAdd(g.T, win, 1); guideAdd(g.T, lose, -0.5); g.picked.push(win.id);
+  }
+  g.used.push(pair[0].id, pair[1].id);
+  g.round++;
+  g.step = g.round >= 3 ? 'details' : 'duel';
+  renderGuide(); $('#dlgGuide').scrollTop = 0;
+}
+function openGuide() {
+  var g = state.guide;
+  if (!g || (g.step !== 'results' && g.step !== 'loading') || Date.now() - g.at > 30 * 60 * 1000) state.guide = guideNew();
+  closeMenu(); closeRail();
+  (CUR ? Promise.resolve() : loadCuraduria()).then(function () { renderGuide(); openDialog($('#dlgGuide')); $('#dlgGuide').scrollTop = 0; });
+}
+function guideStepNo(g) {
+  var list = g.blind ? ['start', 'details'] : g.type === 'tv' ? ['start', 'mood', 'duel0', 'duel1', 'duel2', 'details'] : ['start', 'mood', 'genre', 'duel0', 'duel1', 'duel2', 'details'];
+  var idx = list.indexOf(g.step === 'duel' ? 'duel' + g.round : g.step);
+  return idx < 0 || g.step === 'start' ? '' : (idx + 1) + ' de ' + list.length;
+}
+function guideOpt(act, v, label, sub) { return '<button class="g-opt" type="button" data-g="' + act + '" data-v="' + esc(v) + '"><b>' + esc(label) + '</b>' + (sub ? '<span>' + esc(sub) + '</span>' : '') + '</button>'; }
+function guideRow(label, key, opts, cur) {
+  return '<div class="g-row"><span class="rlabel">' + esc(label) + '</span><div class="g-chips" role="group" aria-label="' + esc(label) + '">' + opts.map(function (o) {
+    return '<button class="g-chip" type="button" data-g="set" data-key="' + key + '" data-v="' + esc(o[0]) + '" aria-pressed="' + (String(cur) === o[0]) + '">' + esc(o[1]) + '</button>';
+  }).join('') + '</div></div>';
+}
+function guideFilm(f, v) {
+  var c = curMap[f.id], p = c && !c.none ? safePath(c.p) : null, L = CUR.labels;
+  var desc = [f.y, L.sub[f.sub[0]], L.ton[f.ton[0]]].filter(Boolean).join(' · ');
+  return '<button class="g-film" type="button" data-g="duel" data-v="' + v + '"><span class="g-poster">' + (p ? '<img alt="" src="' + IMG + 'w342' + p + '">' : '<span class="noposter">' + esc(curShownTitle(f)) + '</span>') + '</span>' +
+    '<b>' + esc(curShownTitle(f)) + '</b><span>' + esc(desc) + '</span></button>';
+}
+function guideGroups(g) {
+  var m = guideMood(g.mood), tons = m ? m.ton : [];
+  return CUR.groups.map(function (x) {
+    var films = CUR.films.filter(function (f) { return !f.tv && x[1].indexOf(f.sec) >= 0; });
+    var fit = tons.length ? films.filter(function (f) { return f.ton.some(function (t) { return tons.indexOf(t) >= 0; }); }).length / (films.length || 1) : 0;
+    return { name: x[0], n: films.length, fit: fit };
+  }).filter(function (x) { return x.n; }).sort(function (a, b) { return b.fit - a.fit; });
+}
+function guideCard(g, r, i) {
+  var it = r.it, p = safePath(it.p), watch = inList('watchlist', it.k);
+  return '<article class="g-card">' +
+    '<button class="g-cposter" type="button" data-g="open" data-v="' + esc(it.k) + '" aria-label="Ver ficha de ' + esc(it.t) + '">' + (p ? '<img alt="" src="' + IMG + 'w342' + p + '">' : '<span class="noposter">' + esc(it.t) + '</span>') + '</button>' +
+    '<div class="g-cmeta">' + (i === 0 && !g.shown ? '<p class="g-top">La que pondría yo</p>' : '') +
+      '<h3>' + esc(it.t) + '</h3><p class="sub">' + subHTML(it) + '</p><p class="scores">' + scoresHTML(it) + '</p><p class="svcs">' + svcsHTML(it) + '</p>' +
+      (r.why ? '<p class="why">' + esc(r.why) + '</p>' : '') +
+      '<div class="g-cacts"><button class="btn btn-accent" type="button" data-g="open" data-v="' + esc(it.k) + '">Ver ficha</button>' +
+      '<button class="btn" type="button" data-g="watch" data-v="' + esc(it.k) + '" aria-pressed="' + watch + '">' + (watch ? 'En Mi lista' : 'Sumar a Mi lista') + '</button></div>' +
+    '</div></article>';
+}
+function renderGuide() {
+  var g = state.guide, body = $('#guideBody'); if (!g || !body) return;
+  var say = '', main = '', foot = '';
+  if (g.step === 'start') {
+    var conf = tasteProfile().conf;
+    say = 'Buenas. Pasá, que quedan butacas. ¿Hoy es noche de película o de serie?';
+    main = '<div class="g-opts g-two">' + guideOpt('type', 'movie', 'Película', 'una sola sentada') + guideOpt('type', 'tv', 'Serie', 'para engancharse') + '</div>' +
+      '<div class="g-alts">' + (conf >= 0.4 ? '<button class="g-alt" type="button" data-g="blind">A ciegas, según lo que me gustó</button>' : '') +
+      '<button class="g-alt" type="button" data-g="random">Una al azar de lo que estoy viendo</button></div>' +
+      (conf < 0.4 ? '<p class="hint g-note">Cuantas más marques como vistas y puntúes, mejor te voy a conocer y más afinadas te van a salir.</p>' : '');
+  } else if (g.step === 'mood') {
+    say = 'Bien. ¿Y con qué ganas venís?';
+    main = '<div class="g-opts">' + GUIDE_MOODS.map(function (m) { return guideOpt('mood', m.k, m.label, m.sub); }).join('') + '</div>';
+  } else if (g.step === 'genre') {
+    say = '¿Para qué lado de la cartelera agarramos?';
+    var gs = guideGroups(g);
+    main = '<div class="g-chips g-genres"><button class="g-chip lead" type="button" data-g="genre" data-v="">Sorprendeme</button>' +
+      gs.map(function (x, i) { return '<button class="g-chip' + (i < 3 && x.fit > 0 ? ' lead' : '') + '" type="button" data-g="genre" data-v="' + esc(x.name) + '">' + esc(x.name) + '</button>'; }).join('') + '</div>' +
+      (guideMood(g.mood) && guideMood(g.mood).ton.length ? '<p class="hint g-note">Los resaltados son los que mejor van con esas ganas.</p>' : '');
+  } else if (g.step === 'duel') {
+    var pair = g.pair = guidePair(g);
+    if (!pair) { g.step = 'details'; renderGuide(); return; }
+    var lead = ['Te pongo dos.', 'Ahora estas.', 'Última y te dejo tranquilo.'][Math.min(g.round, 2)];
+    say = esc(lead) + ' ¿Más <em>' + esc(curShownTitle(pair[0])) + '</em> o más <em>' + esc(curShownTitle(pair[1])) + '</em>?';
+    main = '<div class="g-duel">' + guideFilm(pair[0], 'a') + '<span class="g-vs">o</span>' + guideFilm(pair[1], 'b') + '</div>' +
+      '<div class="g-alts g-center"><button class="g-alt" type="button" data-g="duel" data-v="none">Me da igual, o no conozco ninguna</button></div>';
+  } else if (g.step === 'details') {
+    say = g.blind ? 'Dale, te elijo yo. Decime nomás un par de cosas.' : 'Tres detalles y te acomodo.';
+    main = '<div class="g-rows">' +
+      (g.blind ? guideRow('Qué', 'type', [['movie', 'Película'], ['tv', 'Serie']], g.type) : '') +
+      guideRow('Época', 'era', [['any', 'Me da igual'], ['classic', 'Clásicas, antes de 1980'], ['mid', '80 y 90'], ['modern', '2000 en adelante']], g.era) +
+      (g.type === 'movie' ? guideRow('Duración', 'rt', [['0', 'Lo que dure'], ['105', 'Menos de 1 h 45'], ['135', 'Hasta 2 h 15']], g.rt) : '') +
+      guideRow('Dónde', 'where', [['mine', 'En mis servicios'], ['all', 'Todo el cine']], g.where) + '</div>';
+    foot = '<button class="btn btn-accent" type="button" data-g="go">Mostrame qué hay</button>';
+  } else if (g.step === 'loading') {
+    say = 'Dejame ver qué hay en sala…';
+    main = '<p class="hint" id="guideProg">Eligiendo las pelis base…</p>';
+  } else if (g.step === 'results') {
+    var res = g.res, list = res.items.slice(g.shown, g.shown + 3);
+    if (!res.items.length) {
+      say = 'Con todo eso junto no me quedó nada.';
+      main = '<p class="hint">Probá aflojar la época o la duración, o abrí a todo el cine.</p>';
+    } else {
+      say = g.shown ? (list.length === 3 ? 'Van otras tres.' : 'Estas son las últimas que tengo.') : list.length === 3 ? 'Te guardé estas tres. La primera es la que pondría yo.' : list.length === 2 ? 'Te guardé estas dos. La primera es la que pondría yo.' : 'Encontré una sola, pero va.';
+      main = '<div class="g-res">' + list.map(function (r, i) { return guideCard(g, r, i); }).join('') + '</div>';
+      foot = (res.items.length > g.shown + 3 ? '<button class="btn" type="button" data-g="more">Otras tres</button>' : '') +
+        '<button class="btn" type="button" data-g="all">Ver todas (' + res.items.length + ')</button>' +
+        '<button class="btn" type="button" data-g="fest">Armar festival con esto</button>';
+    }
+    foot += '<button class="btn btn-ghost" type="button" data-g="restart">Empezar de nuevo</button>';
+  }
+  var no = guideStepNo(g);
+  var back = g.hist.length && g.step !== 'loading' ? '<button class="btn btn-ghost" type="button" data-g="back">Atrás</button>' : '';
+  body.innerHTML = '<div class="g-head"><p class="g-who">' + GUIDE_ICON + 'El acomodador</p>' + (no ? '<p class="g-step">' + no + '</p>' : '') + '</div>' +
+    '<h2 class="g-say" id="guideSay">' + say + '</h2>' + main + (foot || back ? '<div class="g-foot">' + back + foot + '</div>' : '');
+  if (g.step === 'duel') {
+    var miss = g.pair.filter(function (f) { return !curMap[f.id]; });
+    if (miss.length) Promise.all(miss.map(curResolve)).then(function () { if (state.guide === g && g.step === 'duel' && g.pair && miss.every(function (f) { return g.pair.indexOf(f) >= 0; })) renderGuide(); }, function () {});
+  }
+}
+var guideRefreshSoon = debounce(function () { var g = state.guide; if (g && g.step === 'results' && $('#dlgGuide').open) renderGuide(); }, 600);
+async function ensureDetails(items) {
+  var need = items.filter(function (it) { return !hasDetails(it.k); });
+  await pool(need, 6, async function (it) {
+    try { var d = await tmdb('/' + it.type + '/' + it.id, { append_to_response: 'external_ids,watch/providers' }); state.details[it.k] = liteFromFull(d, it.type); }
+    catch (e) { if (e.fatal) throw e; if (e.code === 'notfound') state.details[it.k] = { v: 2, at: Date.now(), rt: null, imdb: null, svc: [] }; }
+  });
+  saveCachesSoon();
+}
+function guideWhy(g, r) {
+  var parts = [], near = null, ns = 0.3;
+  if (r.cf) g.picked.forEach(function (id) {
+    var f = CUR.byId.get(id); if (!f || f.id === r.cf.id) return;
+    var s = curSim(f, r.cf) + (curRel(f, r.cf) ? 0.3 : 0); if (s > ns) { ns = s; near = f; }
+  });
+  if (near) parts.push('Va por el lado de ' + curShownTitle(near));
+  if (r.why) parts.push(r.why);
+  else if (r.cf) { var L = CUR.labels; parts.push([L.sub[r.cf.sub[0]], L.ton[r.cf.ton[0]]].filter(Boolean).join(', ')); }
+  return parts.slice(0, 2).join(' · ');
+}
+async function guideCompute(g, progress) {
+  var films = guidePool(g), era = GUIDE_ERAS[g.era] || {};
+  var inEra = function (y) { return !y || ((!era.from || y >= era.from) && (!era.to || y <= era.to)); };
+  var fits = new Map(), maxFit = 0;
+  films.forEach(function (f) { var s = guideFit(g.T, f); fits.set(f.id, s); if (s > maxFit) maxFit = s; });
+  var fitN = function (f) { var s = fits.has(f.id) ? fits.get(f.id) : guideFit(g.T, f); return maxFit > 0 ? Math.max(0, Math.min(1, s / maxFit)) : 0.5; };
+  var byFit = films.slice().sort(function (a, b) { return fits.get(b.id) - fits.get(a.id) || guideFame(b) - guideFame(a); });
+  var secs = guideSecs(g), gg = guideGenres(g), mood = guideMood(g.mood), mg = mood && mood.g ? mood.g[g.type] : null;
+  progress('Eligiendo las pelis base…');
+  var seeds = [], seedKeys = new Set();
+  var addSeed = function (it) { if (it && it.type === g.type && !seedKeys.has(it.k) && seeds.length < 6) { seeds.push(it); seedKeys.add(it.k); } };
+  var prof = tasteProfile();
+  var resolveAll = function (fs) { return Promise.all(fs.map(function (f) { return curResolve(f).catch(function (e) { if (e && e.fatal) throw e; return null; }); })); };
+  var picked = g.picked.map(function (id) { return CUR.byId.get(id); }).filter(Boolean);
+  if (g.blind) tasteSeeds(12).forEach(addSeed);
+  else (await resolveAll(picked)).forEach(addSeed);
+  /* completa con los que mejor encajan; si alguno no aparece en TMDB, sigue con el próximo */
+  for (var cur0 = 0; seeds.length < (g.blind ? 1 : 5) && cur0 < byFit.length && cur0 < 36; cur0 += 6) {
+    var batch0 = byFit.slice(cur0, cur0 + 6).filter(function (f) { return inEra(f.y) && picked.indexOf(f) < 0; });
+    (await resolveAll(batch0)).forEach(addSeed);
+  }
+  if (!g.blind) {
+    if (prof.conf >= 0.4) {
+      var extra = 0;
+      tasteSeeds(12).forEach(function (it) {
+        if (extra >= 2 || it.type !== g.type) return;
+        var cf = curFind(it), ok = secs ? !!(cf && secs.indexOf(cf.sec) >= 0) || (!!gg && (it.g || []).some(function (x) { return gg.indexOf(x) >= 0; })) : true;
+        if (ok && !seedKeys.has(it.k)) { addSeed(it); extra++; }
+      });
+    }
+  }
+  if (!seeds.length) return { items: [], seeds: [], byK: new Map() };
+  var recs = await recommend(seeds, function (m) { progress('Buscando parecidas: ' + m); });
+  var cands = new Map(), maxM = 0;
+  recs.forEach(function (r) { if (r.match > maxM) maxM = r.match; });
+  recs.forEach(function (r) { cands.set(r.it.k, { it: r.it, base: maxM ? r.match / maxM : 0.5, why: r.why }); });
+  if (!g.blind) {
+    var direct = byFit.filter(function (f) { return inEra(f.y); }).slice(0, 12);
+    var dres = await Promise.all(direct.map(function (f) { return curResolve(f).catch(function () { return null; }); }));
+    dres.forEach(function (it) { if (it && !cands.has(it.k)) cands.set(it.k, { it: fromCatalog(Object.assign({ s: [] }, it)), base: 0.55, why: '' }); });
+  }
+  var usedKeys = new Set(g.used.map(function (id) { var c = curMap[id]; return c && c.k; }).filter(Boolean));
+  var out = [];
+  cands.forEach(function (c) {
+    var it = c.it;
+    if (it.type !== g.type || isSeen(it.k) || !inEra(it.y) || usedKeys.has(it.k)) return;
+    var mine = starOf(it.k); if (mine && mine <= 2) return;
+    var cf = curFind(it), fit, gi = it.g || [];
+    if (cf) { fit = fitN(cf); if (secs && secs.indexOf(cf.sec) < 0) fit *= 0.4; }
+    else {
+      if (secs && !gg) return;
+      if (gg && gg.length && !gi.some(function (x) { return gg.indexOf(x) >= 0; })) return;
+      fit = g.blind ? 0.5 : 0.35 + (mg && gi.some(function (x) { return mg.indexOf(x) >= 0; }) ? 0.15 : 0);
+    }
+    var q = Math.max(0, Math.min(1, ((it.v || 0) - 5.5) / 3)) * Math.min(1, (it.vc || 0) / 300);
+    var r = { it: it, cf: cf, why: c.why, score: (g.blind ? 0.8 : 0.5) * c.base + (g.blind ? 0.1 : 0.42) * fit + 0.08 * q };
+    r.why = guideWhy(g, r);
+    out.push(r);
+  });
+  out.sort(function (a, b) { return b.score - a.score; });
+  var final = [];
+  if (g.where === 'mine' || g.rt) {
+    progress('Fijándome dónde se puede ver…');
+    for (var i = 0; final.length < 24 && i < out.length && i < 160; i += 40) {
+      var batch = out.slice(i, i + 40);
+      await ensureDetails(batch.map(function (r) { return r.it; }));
+      batch.forEach(function (r) {
+        var d = state.details[r.it.k];
+        if (g.where === 'mine' && !svcOf(r.it).length) return;
+        if (g.rt && r.it.type === 'movie' && d && d.rt && d.rt > g.rt) return;
+        final.push(r);
+      });
+    }
+  } else { final = out.slice(0, 60); wantDetails(final.slice(0, 9).map(function (r) { return r.it; }), 'hi'); }
+  var byK = new Map(); final.forEach(function (r) { byK.set(r.it.k, r.it); });
+  return { items: final, seeds: seeds, byK: byK };
+}
+async function guideRun(g) {
+  try {
+    var res = await guideCompute(g, function (msg) { var el = $('#guideProg'); if (el && state.guide === g && g.step === 'loading') el.textContent = msg; });
+    if (state.guide !== g || g.step !== 'loading') return;
+    g.res = res; g.shown = 0; g.step = 'results'; g.at = Date.now();
+    renderGuide(); $('#dlgGuide').scrollTop = 0;
+    wantRatings(res.items.slice(0, 6).map(function (r) { return r.it; }));
+  } catch (e) {
+    if (e && e.fatal) { fatal(e); return; }
+    if (state.guide === g) { var h = g.hist.pop(); if (h) Object.assign(g, JSON.parse(h)); renderGuide(); toast((e && e.message) || 'Algo falló. Probá de nuevo.'); }
+  }
+}
+function guideShowAll(g) {
+  var r = g.res; if (!r) return;
+  closeDialog($('#dlgGuide')); closeRail(); clearQuery();
+  var meta = new Map(); r.items.forEach(function (x) { meta.set(x.it.k, { match: x.score, why: x.why }); });
+  state.special = { kind: 'reco', title: 'Elegidas para hoy', festName: 'Festival de esta noche', seeds: r.seeds, items: r.items.map(function (x) { return x.it; }), meta: meta, loading: false };
+  state.ui.sortReco = 'match';
+  refresh(); window.scrollTo(0, 0);
+}
+function guideAct(act, v, b) {
+  var g = state.guide; if (!g) return;
+  if (act === 'back') { guideBack(); return; }
+  if (act === 'restart') { state.guide = guideNew(); renderGuide(); return; }
+  if (act === 'random') { closeDialog($('#dlgGuide')); state.guide = null; pickOne(); return; }
+  if (act === 'blind') { guidePush(); g.blind = true; g.step = 'details'; renderGuide(); return; }
+  if (act === 'type') { guidePush(); g.type = v === 'tv' ? 'tv' : 'movie'; g.step = 'mood'; renderGuide(); return; }
+  if (act === 'mood') {
+    var m = guideMood(v); if (!m) return;
+    guidePush(); g.mood = m.k;
+    m.ton.forEach(function (t) { g.T['o:' + t] = (g.T['o:' + t] || 0) + 0.8; });
+    (m.subs || []).forEach(function (s2) { g.T['s:' + s2] = (g.T['s:' + s2] || 0) + 0.8; });
+    g.step = g.type === 'tv' ? 'duel' : 'genre'; renderGuide(); return;
+  }
+  if (act === 'genre') { guidePush(); g.group = v || null; g.step = 'duel'; renderGuide(); return; }
+  if (act === 'duel') { guideDuel(v); return; }
+  if (act === 'set') { var key = b.dataset.key; if (key === 'rt') g.rt = +v || 0; else if (key === 'type') g.type = v === 'tv' ? 'tv' : 'movie'; else if (key === 'era' && GUIDE_ERAS[v]) g.era = v; else if (key === 'where') g.where = v === 'all' ? 'all' : 'mine'; renderGuide(); return; }
+  if (act === 'go') { guidePush(); g.step = 'loading'; renderGuide(); guideRun(g); return; }
+  if (act === 'more') { g.shown += 3; renderGuide(); $('#dlgGuide').scrollTop = 0; wantRatings(g.res.items.slice(g.shown, g.shown + 3).map(function (r) { return r.it; })); return; }
+  if (act === 'open') { var it = g.res && g.res.byK.get(v); if (it) { closeDialog($('#dlgGuide')); openDetail(it); } return; }
+  if (act === 'watch') { var it2 = g.res && g.res.byK.get(v); if (it2) { var on = toggleList('watchlist', it2); toast(on ? 'Sumada a Mi lista.' : 'Sacada de Mi lista.'); renderGuide(); } return; }
+  if (act === 'all') { guideShowAll(g); return; }
+  if (act === 'fest') { if (g.res && g.res.seeds.length) { closeDialog($('#dlgGuide')); createRadio(g.res.seeds, 'Festival de esta noche'); } return; }
+}
+
 /* ---------- sync (GitHub Gist) ---------- */
 var GIST_FILE = 'cartelera.json';
 async function gh(path, opts) {
@@ -1971,7 +2288,7 @@ function bind() {
   $('#q').addEventListener('input', function (e) { state.q = e.target.value.trim(); if (state.special && state.special.kind === 'search' && state.special.q !== state.q) state.special = null; refreshSoon(); });
   $('#q').addEventListener('keydown', function (e) { if (e.key === 'Enter' && state.ui.view === 'catalog' && !state.special && state.q.length >= 2 && !state.filtered.length) globalSearch(state.q); });
   $('#sort').addEventListener('change', function (e) { state.ui[sortKey()] = e.target.value; refresh(); });
-  $('#pick').addEventListener('click', pickOne);
+  $('#pick').addEventListener('click', openGuide);
   $('#openSettings').addEventListener('click', function () { fillSettingsForm(); openDialog($('#dlgSettings')); });
   $('#openRail').addEventListener('click', openRail);
   $('#closeRail').addEventListener('click', closeRail);
@@ -2175,6 +2492,14 @@ function bind() {
   $('#festGo').addEventListener('click', festFromDraft);
   $('#festTaste').addEventListener('click', festFromTaste);
 
+  /* el acomodador */
+  var dg = $('#dlgGuide');
+  dg.addEventListener('click', function (e) {
+    if (e.target === dg || e.target.closest('[data-close]')) { closeDialog(dg); return; }
+    var b = e.target.closest('[data-g]'); if (!b || b.disabled) return;
+    guideAct(b.dataset.g, b.dataset.v || '', b);
+  });
+
   /* settings dialog */
   var ds = $('#dlgSettings');
   ds.addEventListener('click', function (e) {
@@ -2241,6 +2566,6 @@ function boot() {
   start();
 }
 
-if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') window.__cartelera = { state: state, refresh: refresh, scoreFor: scoreFor, recommend: recommend, curFind: curFind, cur: function () { return CUR; }, openFest: openFest, tasteProfile: tasteProfile, tasteSeeds: tasteSeeds, inviteUrl: inviteUrl, openReco: openReco, openPerson: openPerson, allSig: allSig, mergeUsers: mergeUsers, normUser: normUser, contentKey: contentKey, listKeys: listKeys, pairUrl: pairUrl, syncNow: syncNow };
+if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') window.__cartelera = { state: state, refresh: refresh, scoreFor: scoreFor, recommend: recommend, curFind: curFind, cur: function () { return CUR; }, openFest: openFest, openGuide: openGuide, guide: function () { return state.guide; }, tasteProfile: tasteProfile, tasteSeeds: tasteSeeds, inviteUrl: inviteUrl, openReco: openReco, openPerson: openPerson, allSig: allSig, mergeUsers: mergeUsers, normUser: normUser, contentKey: contentKey, listKeys: listKeys, pairUrl: pairUrl, syncNow: syncNow };
 boot();
 })();

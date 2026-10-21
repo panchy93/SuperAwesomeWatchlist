@@ -20,3 +20,7 @@ Este producto usa la API de TMDB pero no está avalado ni certificado por TMDB. 
 Un festival es una lista con títulos base: se completa sola con parecidas y se guarda y sincroniza igual que cualquier lista. Se arma desde el botón **Festivales** (a mano, con lo que más te gustó o desde una sección prearmada), desde la ficha de un título o desde una lista.
 
 Las vistas y las estrellas afinan las recomendaciones y los festivales: 5★ y 4★ empujan para arriba lo parecido, 2★ y 1★ lo empujan para abajo (y lo puntuado así nunca se recomienda), 3★ es neutro. El efecto crece a medida que puntuás más títulos. Puntuar un título lo marca como visto. En **Listas → Vistas** está "Recomendaciones para vos".
+
+## El acomodador
+
+"Elegime una" abre un asistente que pregunta qué tipo de título, con qué ganas, qué género, hace tres duelos entre títulos conocidos ("¿más esta o más aquella?") y pide época, duración y dónde verla. Con las respuestas arma un perfil de etiquetas de la curaduría, elige títulos base y usa el mismo motor de recomendaciones, que ya tiene en cuenta vistas y estrellas. Con varios títulos puntuados ofrece elegir "a ciegas" directo desde tu gusto, y sigue estando la opción de una al azar con los filtros del momento.
