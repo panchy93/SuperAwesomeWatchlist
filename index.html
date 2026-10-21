@@ -31,6 +31,7 @@
     <div class="seg" role="group" aria-label="Sección" id="viewSeg">
       <button type="button" data-view="catalog">Catálogo</button>
       <button type="button" data-view="lists">Listas</button>
+      <button type="button" data-view="profile">Perfil</button>
     </div>
     <div class="seg" role="group" aria-label="Tipo de título" id="typeSeg">
       <button type="button" data-type="movie">Películas</button>
@@ -142,6 +143,7 @@
       </form>
     </section>
 
+    <section class="profile" id="profile" aria-label="Tu perfil"></section>
     <div class="listbar" id="listbar" hidden></div>
     <div class="specialbar" id="specialBar" hidden></div>
     <div class="resbar" id="resbar">
@@ -155,6 +157,14 @@
     <footer class="foot" id="foot">Este producto usa la API de TMDB pero no está avalado ni certificado por TMDB. Disponibilidad en streaming provista por JustWatch a través de TMDB. Ratings de IMDb, Rotten Tomatoes y Metacritic vía OMDb.</footer>
   </main>
 </div>
+
+<nav class="tabbar" id="tabbar" aria-label="Secciones">
+  <button type="button" data-tab="catalog"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="4" width="7" height="7" rx="1.5"/><rect x="13.5" y="4" width="7" height="7" rx="1.5"/><rect x="3.5" y="14" width="7" height="7" rx="1.5"/><rect x="13.5" y="14" width="7" height="7" rx="1.5"/></svg><span>Catálogo</span></button>
+  <button type="button" data-tab="lists"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M6 3.5h12v17l-6-4.2-6 4.2z"/></svg><span>Listas</span></button>
+  <button type="button" data-tab="pick" class="tab-pick"><span class="tab-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"/><circle cx="9" cy="9" r="1.2" fill="currentColor"/><circle cx="15" cy="15" r="1.2" fill="currentColor"/><circle cx="15" cy="9" r="1.2" fill="currentColor"/><circle cx="9" cy="15" r="1.2" fill="currentColor"/></svg></span><span>Elegime</span></button>
+  <button type="button" data-tab="fest"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16v3a2 2 0 0 0 0 4v3H4v-3a2 2 0 0 0 0-4z"/><path d="M14.5 7.5v9" stroke-dasharray="1.6 2.2"/></svg><span>Festivales</span></button>
+  <button type="button" data-tab="profile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8.5" r="3.8"/><path d="M4.5 20c1.2-3.6 4-5.5 7.5-5.5s6.3 1.9 7.5 5.5"/></svg><span>Perfil</span></button>
+</nav>
 
 <div class="veil" id="veil" hidden></div>
 

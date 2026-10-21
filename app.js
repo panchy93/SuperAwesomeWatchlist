@@ -88,7 +88,7 @@ function cleanSnap(s, k) {
     v: num(s.v), vc: num(s.vc), pop: num(s.pop), p: safePath(s.p)
   };
 }
-function blankList(id, name, at) { return { id: id, name: name, nameAt: at || 0, createdAt: at || 0, deletedAt: 0, adds: {}, rms: {}, seeds: {}, nos: {} }; }
+function blankList(id, name, at) { return { id: id, name: name, nameAt: at || 0, createdAt: at || 0, deletedAt: 0, adds: {}, rms: {}, seeds: {}, nos: {}, tags: {} }; }
 function blankUser() { return { v: 2, lists: [blankList('watchlist', 'Mi lista', 0)], seen: {}, unseen: {}, stars: {}, items: {}, updatedAt: 0 }; }
 function upsertList(u, l) {
   var ex = u.lists.filter(function (x) { return x.id === l.id; })[0];
@@ -98,6 +98,13 @@ function upsertList(u, l) {
   ex.deletedAt = ex.id === 'watchlist' ? 0 : Math.max(ex.deletedAt, l.deletedAt);
   maxInto(ex.adds, l.adds); maxInto(ex.rms, l.rms);
   maxInto(ex.seeds, l.seeds || {}); maxInto(ex.nos, l.nos || {});
+  var tg = l.tags || {}; ex.tags = ex.tags || {};
+  Object.keys(tg).forEach(function (k) { var a = tg[k], c = ex.tags[k]; if (!c || a.at > c.at || (a.at === c.at && a.v < c.v)) ex.tags[k] = { v: a.v, at: a.at }; });
+}
+function tagMap(o) {
+  var out = {};
+  if (o && typeof o === 'object') Object.keys(o).forEach(function (k) { var t = o[k]; if (/^[stog]:[a-z0-9-]{1,30}$/.test(k) && t && (t.v === -1 || t.v === 0 || t.v === 1) && +t.at > 0) out[k] = { v: t.v, at: +t.at }; });
+  return out;
 }
 function sortLists(u) { u.lists.sort(function (a, b) { return (a.id === 'watchlist' ? -1 : 0) - (b.id === 'watchlist' ? -1 : 0) || a.createdAt - b.createdAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0); }); return u; }
 function normUser(u) {
@@ -108,7 +115,7 @@ function normUser(u) {
   if (u.v === 2) {
     lists.forEach(function (l) {
       if (!l || typeof l.id !== 'string' || !/^[A-Za-z0-9_-]{1,40}$/.test(l.id)) return;
-      upsertList(out, { id: l.id, name: String(l.name || 'Lista').slice(0, 40), nameAt: +l.nameAt || 0, createdAt: +l.createdAt || 0, deletedAt: +l.deletedAt || 0, adds: tsMap(l.adds), rms: tsMap(l.rms), seeds: tsMap(l.seeds), nos: tsMap(l.nos) });
+      upsertList(out, { id: l.id, name: String(l.name || 'Lista').slice(0, 40), nameAt: +l.nameAt || 0, createdAt: +l.createdAt || 0, deletedAt: +l.deletedAt || 0, adds: tsMap(l.adds), rms: tsMap(l.rms), seeds: tsMap(l.seeds), nos: tsMap(l.nos), tags: tagMap(l.tags) });
     });
     out.seen = tsMap(u.seen); out.unseen = tsMap(u.unseen);
     if (u.stars && typeof u.stars === 'object') Object.keys(u.stars).forEach(function (k) {
@@ -572,7 +579,10 @@ function currentPool() {
   var keys;
   if (state.ui.list === 'seen') keys = seenKeys();
   else { var l = getList(state.ui.list) || getList('watchlist'); state.ui.list = l.id; keys = listKeys(l); }
-  return keys.map(resolveItem).filter(Boolean);
+  var items = keys.map(resolveItem).filter(Boolean), R = l ? rumboOf(l) : null;
+  if (R) { var vis = items.filter(function (it) { return !rumboOut(R, it); }); state.rumboHidden = items.length - vis.length; return vis; }
+  state.rumboHidden = 0;
+  return items;
 }
 function applyFilters(list) {
   var f = state.f, q = fold(state.q), mine = ctxMine(), open = ctxOpen();
@@ -734,6 +744,10 @@ function refresh(keepLimit) {
   if (!keepLimit) state.limit = PAGE;
   if (isAllMode()) state.limit = Math.max(state.limit, list.length);
   $('#reflowBtn').hidden = true;
+  var prof = state.ui.view === 'profile' && !sp;
+  document.body.classList.toggle('v-profile', prof);
+  $$('#tabbar [data-tab]').forEach(function (b) { var t = b.dataset.tab; if (t === 'catalog' || t === 'lists' || t === 'profile') { if (t === (sp ? '' : state.ui.view)) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); } });
+  if (prof) renderProfile();
   renderTop(); renderListbar(); renderSpecialBar(); renderCount(); renderGrid(keepLimit); renderRailStatus(); saveUi();
   if (state.menuItem) renderMenu();
   navSoon();
@@ -838,7 +852,7 @@ function renderCount() {
 function renderTop() {
   $$('#viewSeg button').forEach(function (b) { b.setAttribute('aria-pressed', b.dataset.view === state.ui.view); });
   $$('#typeSeg button').forEach(function (b) { b.setAttribute('aria-pressed', b.dataset.type === state.ui.type); });
-  $('#typeSeg').hidden = state.ui.view === 'lists' || !!state.special;
+  $('#typeSeg').hidden = state.ui.view !== 'catalog' || !!state.special;
   var sel = $('#sort'), opts = sortOptions(), cur = curSort();
   sel.innerHTML = opts.map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === cur ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('');
   sel.disabled = opts.length < 2;
@@ -851,6 +865,18 @@ function renderTop() {
   $('#onlyMineWrap').hidden = !ctxOpen();
   $('#onlyMine').checked = !!state.f.onlyMine;
   var n = activeFilterCount(), fc = $('#fcount'); fc.hidden = !n; fc.textContent = n;
+}
+function rumboHTML(l) {
+  var ch = rumboChips(l), tags = l.tags || {};
+  if (!ch.base.length && !ch.more.length) return '';
+  var chip = function (k, extra) {
+    var off = tags[k] && tags[k].v < 0;
+    return '<button class="rchip' + (off ? ' off' : '') + '" type="button" data-rumbo="' + esc(k) + '" aria-pressed="' + !off + '" title="' + (off ? 'Volver a incluir' : 'Sacar del rumbo') + '">' + esc(labelName(k)) + (extra ? ' <span class="n">' + extra + '</span>' : '') + '</button>';
+  };
+  var hidden = state.rumboHidden || 0;
+  return '<div class="rumbo"><p class="rumbo-h"><b>Rumbo</b> Tocá una etiqueta para sacarla: el festival deja afuera lo que va más por ese lado que por el resto.' + (hidden ? ' <span class="rumbo-n">' + hidden + (hidden === 1 ? ' título oculto' : ' títulos ocultos') + ' por el rumbo</span>' : '') + '</p>' +
+    '<div class="rumbo-chips">' + ch.base.map(function (k) { return chip(k); }).join('') + '</div>' +
+    (ch.more.length ? '<details class="rumbo-more"' + (state.rumboMoreOpen ? ' open' : '') + '><summary>Más etiquetas</summary><div class="rumbo-chips">' + ch.more.map(function (k) { return chip(k, ch.freq[k]); }).join('') + '</div></details>' : '') + '</div>';
 }
 function renderListbar() {
   var bar = $('#listbar');
@@ -876,7 +902,7 @@ function renderListbar() {
   var radioHint = '';
   if (l && isRadio(l) && !state.listEdit) {
     var seeds = Object.keys(l.seeds).map(resolveItem).filter(Boolean).map(function (s) { return s.t; });
-    radioHint = '<p class="hint radio-hint"><span class="radio-tag">Festival</span> Una lista que se completa sola. Programado a partir de: ' + esc(seeds.join(', ')) + '. Abrí cualquier peli para usarla como base o sacarla del festival.</p>';
+    radioHint = '<p class="hint radio-hint"><span class="radio-tag">Festival</span> Una lista que se completa sola. Programado a partir de: ' + esc(seeds.join(', ')) + '. Abrí cualquier peli para usarla como base o sacarla del festival.</p>' + rumboHTML(l);
   }
   bar.innerHTML = pills.join('') + '<span class="list-tools">' + tools + '</span>' + radioHint;
   var inp = $('#newListInp') || $('#renListInp'); if (inp) inp.focus();
@@ -1925,16 +1951,175 @@ function compSetStar(it, n) {
   c.items[it.k] = snapshot(it); saveComps();
 }
 
+/* ---------- rumbo de un festival ----------
+   Cada título tiene etiquetas: las de la curaduría si está en la base (subgénero, temas,
+   tono) o, si no, las que salen de sus géneros de TMDB. El festival muestra las de sus pelis
+   base; sacar una deja afuera los títulos en los que lo que sacaste pesa más que lo que
+   dejaste. Ej.: base La lista de Schindler (histórico, bélico, drama) sin "bélico": se van
+   las de guerra y acción, se quedan los dramas de guerra. Es reversible: no borra nada,
+   oculta y orienta lo que se suma después. */
+var GENRE_SUB = { 28: 'accion', 12: 'aventura', 16: 'animacion', 35: 'humor', 80: 'policial', 99: 'documental', 18: 'drama', 14: 'fantasia', 36: 'historico', 10402: 'musical', 10749: 'romance', 878: 'scifi', 53: 'thriller', 10752: 'belico', 37: 'western', 10759: 'accion', 10765: 'scifi', 10768: 'belico' };
+var SKIP_GENRES = { 10770: 1, 10762: 1, 10763: 1, 10764: 1, 10766: 1, 10767: 1 };
+function itemLabels(it) {
+  var cf = curFind(it);
+  if (cf) return { main: cf.sub.map(function (x) { return 's:' + x; }), rest: cf.tem.map(function (x) { return 't:' + x; }).concat(cf.ton.map(function (x) { return 'o:' + x; })) };
+  var main = [];
+  (it.g || []).forEach(function (g) { if (SKIP_GENRES[g]) return; var s = GENRE_SUB[g], key = s ? 's:' + s : 'g:' + g; if (main.indexOf(key) < 0) main.push(key); });
+  return { main: main, rest: [] };
+}
+function labelName(key) {
+  var p = key.slice(0, 1), v = key.slice(2), L = CUR && CUR.labels;
+  if (p === 'g') { var id = +v; return state.genres.movie.get(id) || state.genres.tv.get(id) || 'Género ' + v; }
+  var map = L ? (p === 's' ? L.sub : p === 't' ? L.tem : L.ton) : null;
+  var n = map && map[v] ? map[v] : v.replace(/-/g, ' ');
+  return n.charAt(0).toUpperCase() + n.slice(1);
+}
+function rumboOf(l) {
+  if (!l || !l.tags) return null;
+  var out = new Set(); Object.keys(l.tags).forEach(function (k) { if (l.tags[k].v < 0) out.add(k); });
+  if (!out.size) return null;
+  var keep = new Set();
+  Object.keys(l.seeds || {}).forEach(function (k) { var L = itemLabels(resolveItem(k)); L.main.concat(L.rest).forEach(function (x) { if (!out.has(x)) keep.add(x); }); });
+  return { out: out, keep: keep };
+}
+function rumboOut(R, it) {
+  if (!R) return false;
+  var L = itemLabels(it), m = L.main.length || 1;
+  var h = L.main.filter(function (x) { return R.out.has(x); }).length / m, kp = L.main.filter(function (x) { return R.keep.has(x); }).length / m;
+  if (h > kp) return true;
+  var hr = L.rest.filter(function (x) { return R.out.has(x); }).length, kr = L.rest.filter(function (x) { return R.keep.has(x); }).length;
+  return hr > kr;
+}
+/* chips del rumbo: las etiquetas de las pelis base y, aparte, las más frecuentes entre los títulos del festival */
+function rumboChips(l) {
+  var seeds = Object.keys(l.seeds || {}), main = [], restN = {}, inBase = new Set();
+  seeds.forEach(function (k) { var L = itemLabels(resolveItem(k)); L.main.forEach(function (x) { if (main.indexOf(x) < 0) main.push(x); }); L.rest.forEach(function (x) { restN[x] = (restN[x] || 0) + 1; }); });
+  var rest = Object.keys(restN).sort(function (a, b) { return restN[b] - restN[a]; });
+  var shared = rest.filter(function (x) { return restN[x] >= 2 || seeds.length === 1; }).slice(0, 8);
+  var base = main.slice(0, 8).concat(shared);
+  base.forEach(function (x) { inBase.add(x); });
+  var freq = {};
+  listKeys(l).forEach(function (k) { var L = itemLabels(resolveItem(k)); L.main.forEach(function (x) { if (!inBase.has(x)) freq[x] = (freq[x] || 0) + 1; }); });
+  var more = Object.keys(freq).filter(function (x) { return freq[x] >= 2; }).sort(function (a, b) { return freq[b] - freq[a]; }).slice(0, 8);
+  main.slice(8).concat(rest.filter(function (x) { return !inBase.has(x); })).forEach(function (x) { if (more.indexOf(x) < 0 && more.length < 20) more.push(x); });
+  Object.keys(l.tags || {}).forEach(function (x) { if (l.tags[x].v < 0 && !inBase.has(x) && more.indexOf(x) < 0) more.unshift(x); });
+  return { base: base, more: more, freq: freq };
+}
+function setRumbo(l, key, off) {
+  l.tags = l.tags || {};
+  l.tags[key] = { v: off ? -1 : 0, at: now() };
+  touchUser();
+}
+
+/* ---------- perfil: lo que viste, tus listas y un resumen de tu gusto ---------- */
+var STAR_W = [1, 0.2, 0.5, 1, 1.6, 2.2];
+function profileStats() {
+  var u = state.user, keys = Array.from(mySignals().keys()), items = keys.map(function (k) { return { k: k, it: itemFor(k), n: starOf(k) }; });
+  var st = { total: items.length, movies: 0, series: 0, rated: 0, sum: 0, dist: [0, 0, 0, 0, 0, 0], mins: 0, minsN: 0, genres: {}, subs: {}, tems: {}, tons: {}, secs: {}, decades: {}, year: 0, months: {}, gem: null, unpop: null, agree: null };
+  var thisYear = new Date().getFullYear(), diffs = [];
+  items.forEach(function (x) {
+    var it = x.it, w = STAR_W[x.n] || 1;
+    if (it.type === 'tv') st.series++; else st.movies++;
+    if (x.n) { st.rated++; st.sum += x.n; st.dist[x.n]++; }
+    var d = state.details[x.k]; if (it.type === 'movie' && d && d.rt) { st.mins += d.rt; st.minsN++; }
+    (it.g || []).forEach(function (g) { if (!SKIP_GENRES[g]) st.genres[g] = (st.genres[g] || 0) + w; });
+    if (it.y) { var dec = Math.floor(it.y / 10) * 10; st.decades[dec] = (st.decades[dec] || 0) + w; }
+    var cf = curFind(it);
+    if (cf) {
+      cf.sub.forEach(function (v) { st.subs[v] = (st.subs[v] || 0) + w; });
+      cf.tem.forEach(function (v) { st.tems[v] = (st.tems[v] || 0) + w; });
+      cf.ton.forEach(function (v) { st.tons[v] = (st.tons[v] || 0) + w; });
+      if (x.n >= 4) st.secs[cf.sec] = (st.secs[cf.sec] || 0) + w;
+    }
+    var at = u.seen[x.k] || (u.stars[x.k] && u.stars[x.k].at) || 0;
+    if (at && new Date(at).getFullYear() === thisYear) { st.year++; var m = new Date(at).getMonth(); st.months[m] = (st.months[m] || 0) + 1; }
+    if (x.n && it.v > 0 && (it.vc || 0) >= 50) {
+      diffs.push(Math.abs(x.n * 2 - it.v));
+      if (x.n >= 4 && (!st.gem || it.v < st.gem.it.v)) st.gem = x;
+      if (x.n <= 2 && (!st.unpop || it.v > st.unpop.it.v)) st.unpop = x;
+    }
+  });
+  if (st.gem && st.gem.it.v >= 7.6) st.gem = null;
+  if (st.unpop && st.unpop.it.v < 6.8) st.unpop = null;
+  if (diffs.length >= 5) st.agree = Math.max(0, Math.round(100 - diffs.reduce(function (a, b) { return a + b; }, 0) / diffs.length * 18));
+  return st;
+}
+function topOf(map, n) { return Object.keys(map).sort(function (a, b) { return map[b] - map[a]; }).slice(0, n || 3); }
+var MONTHS = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+function renderProfile() {
+  var el = $('#profile'); if (!el) return;
+  var name = state.settings.myName || '', st = profileStats(), L = CUR && CUR.labels, gname = function (id) { return state.genres.movie.get(+id) || state.genres.tv.get(+id) || ''; };
+  var initial = (name || 'Vos').trim().charAt(0).toUpperCase();
+  var lists = visibleLists(), fests = lists.filter(isRadio), plain = lists.filter(function (l) { return !isRadio(l); });
+  var h = '<header class="pf-head"><span class="pf-avatar" aria-hidden="true">' + esc(initial) + '</span><div class="pf-id">' +
+    '<form class="pf-name" id="pfNameForm" autocomplete="off"><label class="sr" for="pfName">Tu nombre</label><input class="pf-name-inp" id="pfName" maxlength="30" placeholder="Tu nombre" value="' + esc(name) + '"></form>' +
+    '<p class="pf-sub">' + nf.format(st.total) + (st.total === 1 ? ' vista' : ' vistas') + ' · ' + nf.format(st.rated) + ' con estrellas · ' + nf.format(lists.length) + (lists.length === 1 ? ' lista' : ' listas') + '</p></div>' +
+    '<div class="pf-actions"><button class="btn" type="button" data-pf="duo">' + DUO_ICON + 'De a dos</button><button class="btn" type="button" data-pf="settings">Ajustes</button></div></header>';
+  if (!st.total) {
+    h += '<div class="pf-empty"><p>Todavía no marcaste nada como visto. Cuando lo hagas (o les pongas estrellas), acá aparece tu resumen: géneros, etiquetas y épocas favoritas, tu joya escondida y más.</p></div>';
+  } else {
+    var cards = [];
+    var g = topOf(st.genres, 3);
+    if (g.length) cards.push(['c1', 'Tu género', esc(gname(g[0])), g.slice(1).map(gname).filter(Boolean).length ? 'Después: ' + esc(g.slice(1).map(gname).filter(Boolean).join(' y ')) : '']);
+    var sb = topOf(st.subs, 3);
+    if (sb.length && L) cards.push(['c2', 'Tus etiquetas', esc(L.sub[sb[0]] || sb[0]), esc(sb.slice(1).map(function (x) { return L.sub[x] || x; }).join(' · '))]);
+    var tn = topOf(st.tons, 2), tm = topOf(st.tems, 2);
+    if (tn.length && L) cards.push(['c3', 'Tu tono', esc(L.ton[tn[0]] || tn[0]), tm.length ? 'Te tiran los temas de ' + esc(tm.map(function (x) { return L.tem[x] || x; }).join(' y ')) : '']);
+    var dc = topOf(st.decades, 1);
+    if (dc.length) cards.push(['c4', 'Tu década', 'Los ' + (+dc[0] >= 2000 ? dc[0] : String(dc[0]).slice(-2)), 'La época que más aparece en lo que viste']);
+    if (st.minsN) cards.push(['c5', 'En pantalla', nf.format(Math.round(st.mins / 60)) + ' h', 'Sumando ' + st.minsN + ' pelis con duración conocida']);
+    if (st.rated) cards.push(['c6', 'Tu promedio', (st.sum / st.rated).toFixed(1).replace('.', ',') + ' ★', st.agree != null ? 'Coincidís con TMDB en un ' + st.agree + ' %' : nf.format(st.rated) + ' títulos puntuados']);
+    if (st.gem) cards.push(['c7', 'Tu joya escondida', esc(st.gem.it.t), 'Le diste ' + st.gem.n + '★ y en TMDB tiene ' + String(st.gem.it.v).replace('.', ',')]);
+    if (st.unpop) cards.push(['c8', 'Opinión impopular', esc(st.unpop.it.t), 'Le diste ' + st.unpop.n + '★ y en TMDB tiene ' + String(st.unpop.it.v).replace('.', ',')]);
+    if (st.year) { var bm = topOf(st.months, 1)[0]; cards.push(['c2', 'Este año', nf.format(st.year) + (st.year === 1 ? ' vista' : ' vistas'), bm != null ? 'El mes más cinéfilo: ' + MONTHS[bm] : '']); }
+    h += '<section class="pf-sec"><h3 class="fest-h">Tu resumen</h3><div class="wr">' + cards.map(function (c) {
+      var longest = String(c[2]).replace(/&[a-z#0-9]+;/g, 'x').split(/\s+/).reduce(function (m, w) { return Math.max(m, w.length); }, 0);
+      return '<article class="wr-card ' + c[0] + (longest > 9 ? ' wr-long' : '') + '"><p class="wr-k">' + c[1] + '</p><p class="wr-v">' + c[2] + '</p>' + (c[3] ? '<p class="wr-s">' + c[3] + '</p>' : '') + '</article>';
+    }).join('') + '</div>';
+    if (st.rated) {
+      var mx = Math.max.apply(null, st.dist.slice(1)) || 1;
+      h += '<div class="pf-dist" aria-label="Cuántos títulos puntuaste con cada cantidad de estrellas">' + [5, 4, 3, 2, 1].map(function (n) {
+        return '<div class="pf-bar"><span class="pf-bl">' + n + '★</span><span class="pf-track"><span class="pf-fill" data-w="' + Math.round(st.dist[n] / mx * 100) + '"></span></span><span class="pf-bn">' + st.dist[n] + '</span></div>';
+      }).join('') + '</div>';
+    }
+    var sec = topOf(st.secs, 1)[0];
+    if (sec && L && L.sec[sec]) h += '<p class="pf-ideal">Tu festival ideal: <b>' + esc(L.sec[sec]) + '</b> <button class="btn btn-accent" type="button" data-pf="ideal" data-v="' + esc(sec) + '">Armarlo</button></p>';
+    h += '</section>';
+  }
+  var recent = seenKeys().slice(0, 12).map(itemFor);
+  if (recent.length) h += '<section class="pf-sec"><div class="pf-row-h"><h3 class="fest-h">Vistas recientes</h3><button class="btn btn-ghost" type="button" data-pf="seen">Ver todas</button></div><div class="pf-strip">' + recent.map(function (it) {
+    var p = safePath(it.p);
+    return '<button class="pf-post" type="button" data-pf="open" data-v="' + esc(it.k) + '" title="' + esc(it.t) + '">' + (p ? '<img alt="" loading="lazy" src="' + IMG + 'w185' + p + '">' : '<span class="noposter">' + esc(it.t) + '</span>') + (starOf(it.k) ? '<span class="pf-st">' + starOf(it.k) + '★</span>' : '') + '</button>';
+  }).join('') + '</div></section>';
+  var pill = function (l) { return '<button class="lpill' + (isRadio(l) ? ' is-fest' : '') + '" type="button" data-pf="list" data-v="' + esc(l.id) + '">' + (isRadio(l) ? ICON.ticket : '') + esc(l.name) + ' <span class="n">' + nf.format(listKeys(l).length) + '</span></button>'; };
+  h += '<section class="pf-sec"><h3 class="fest-h">Tus listas</h3><div class="fest-mine">' + plain.map(pill).join('') + '</div>' +
+    (fests.length ? '<h3 class="fest-h pf-h2">Tus festivales</h3><div class="fest-mine">' + fests.map(pill).join('') + '</div>' : '') + '</section>';
+  h += '<section class="pf-sec"><h3 class="fest-h">Watch buddies</h3>' + (COMP.length ? '<div class="fest-mine">' + COMP.map(function (c) {
+    return '<button class="lpill" type="button" data-pf="buddy" data-v="' + esc(c.id) + '">' + DUO_ICON + esc(c.name) + ' <span class="n">' + nf.format(Object.keys(c.seen).length) + '</span></button>';
+  }).join('') + '</div>' : '<p class="hint">Todavía no cargaste a nadie. Desde De a dos podés compartir tu gusto o sumar el de otra persona.</p>') + '</section>';
+  el.innerHTML = h;
+  $$('.pf-fill', el).forEach(function (f) { f.style.width = f.dataset.w + '%'; });
+}
+function profileAct(act, v) {
+  if (act === 'duo') { openDuo(); return; }
+  if (act === 'settings') { fillSettingsForm(); openDialog($('#dlgSettings')); return; }
+  if (act === 'seen') { state.ui.list = 'seen'; setView('lists'); return; }
+  if (act === 'list') { var l = getList(v); if (l) { state.ui.list = l.id; state.ui.view = 'lists'; state.special = null; refresh(); window.scrollTo(0, 0); } return; }
+  if (act === 'open') { openDetail(itemFor(v)); return; }
+  if (act === 'buddy') { setDuo(v); openDuo(); return; }
+  if (act === 'ideal') { var b = $('#profile [data-pf="ideal"]'); startSectionFestival(v, b); return; }
+}
+
 /* ---------- radios ---------- */
 function isRadio(l) { return !!l && Object.keys(l.seeds || {}).length > 0; }
 function radioContext() { if (state.special || state.ui.view !== 'lists') return null; var l = getList(state.ui.list); return isRadio(l) ? l : null; }
 async function radioFill(l, n) {
   var seeds = Object.keys(l.seeds).sort(function (a, b) { return l.seeds[a] - l.seeds[b]; }).map(resolveItem).filter(Boolean).slice(-8);
-  var recs = await recommend(seeds);
+  var recs = await recommend(seeds), R = rumboOf(l);
   var t = now(), added = 0;
   for (var i = 0; i < recs.length && added < n; i++) {
     var it = recs[i].it, k = it.k;
-    if (isIn(l, k) || l.nos[k] || (l.seeds[k] && !duoComp()) || seenNow(k) || lowNow(k) || (l.rms[k] || 0) > 0) continue;
+    if (isIn(l, k) || l.nos[k] || (l.seeds[k] && !duoComp()) || seenNow(k) || lowNow(k) || (l.rms[k] || 0) > 0 || rumboOut(R, it)) continue;
     l.adds[k] = t - added; state.user.items[k] = snapshot(it); added++;
   }
   touchUser();
@@ -2295,9 +2480,9 @@ var NAV_DIALOGS = ['dlgDetail', 'dlgGuide', 'dlgFest', 'dlgDuo', 'dlgSettings'];
 function navSnap() {
   var top = null;
   for (var i = 0; i < NAV_DIALOGS.length; i++) { var d = document.getElementById(NAV_DIALOGS[i]); if (d && d.open) { top = NAV_DIALOGS[i]; break; } }
-  return { special: state.special || null, dialog: top, detail: top === 'dlgDetail' && state.detail ? state.detail.it : null, rail: document.body.classList.contains('rail-open'), menu: !$('#listMenu').hidden, gstep: top === 'dlgGuide' && state.guide ? state.guide.hist.length : 0, y: 0 };
+  return { view: state.ui.view, special: state.special || null, dialog: top, detail: top === 'dlgDetail' && state.detail ? state.detail.it : null, rail: document.body.classList.contains('rail-open'), menu: !$('#listMenu').hidden, gstep: top === 'dlgGuide' && state.guide ? state.guide.hist.length : 0, y: 0 };
 }
-function navSame(a, b) { return !!a && !!b && a.special === b.special && a.dialog === b.dialog && a.rail === b.rail && !!a.menu === !!b.menu && (a.gstep || 0) === (b.gstep || 0) && (a.detail ? !!b.detail && a.detail.k === b.detail.k : !b.detail); }
+function navSame(a, b) { return !!a && !!b && (a.view || 'catalog') === (b.view || 'catalog') && a.special === b.special && a.dialog === b.dialog && a.rail === b.rail && !!a.menu === !!b.menu && (a.gstep || 0) === (b.gstep || 0) && (a.detail ? !!b.detail && a.detail.k === b.detail.k : !b.detail); }
 function navSoon() {
   if (NAV.queued || NAV.applying || !NAV.armed) return;
   NAV.queued = true;
@@ -2316,7 +2501,7 @@ function navSync() {
 function navArm() {
   if (NAV.armed) return;
   NAV.armed = true;
-  NAV.entries = [{ special: null, dialog: null, detail: null, rail: false, menu: false, y: 0 }, navSnap()];
+  NAV.entries = [{ view: 'catalog', special: null, dialog: null, detail: null, rail: false, menu: false, y: 0 }, navSnap()];
   NAV.entries[1].y = window.scrollY;
   NAV.idx = 1;
   try { history.replaceState({ wl: 0 }, ''); history.pushState({ wl: 1 }, ''); } catch (e) {}
@@ -2327,7 +2512,9 @@ function navApply(s) {
     closeMenu(); s.menu = false;
     if (s.rail) openRail(); else closeRail();
     NAV_DIALOGS.forEach(function (id) { var d = document.getElementById(id); if (d && d.open && id !== s.dialog) closeDialog(d); });
-    if (state.special !== s.special) {
+    var vchg = s.view && state.ui.view !== s.view;
+    if (vchg) { state.ui.view = s.view; renderRail(); if (s.view === 'catalog') loadCatalogAndRefresh(state.ui.type); }
+    if (state.special !== s.special || vchg) {
       state.special = s.special;
       refresh(true);
       var y = s.y || 0; requestAnimationFrame(function () { window.scrollTo(0, y); });
@@ -2606,6 +2793,7 @@ function showOnboarding() {
 }
 
 function setView(v) {
+  if (['catalog', 'lists', 'profile'].indexOf(v) < 0) v = 'catalog';
   if (state.ui.view === v && !state.special) return;
   state.ui.view = v; state.special = null; closeRail();
   renderRail(); refresh(); window.scrollTo(0, 0);
@@ -2771,6 +2959,19 @@ function bind() {
   $('#listbar').addEventListener('click', function (e) {
     var p = e.target.closest('[data-list]');
     if (p) { state.ui.list = p.dataset.list; state.listEdit = null; state.confirmDelete = null; refresh(); return; }
+    var sm = e.target.closest('.rumbo-more summary');
+    if (sm) { state.rumboMoreOpen = !sm.parentNode.open; return; }
+    var rb = e.target.closest('[data-rumbo]');
+    if (rb) {
+      var rl = getList(state.ui.list); if (!rl) return;
+      var key = rb.dataset.rumbo, off = !(rl.tags && rl.tags[key] && rl.tags[key].v < 0);
+      var before = state.rumboHidden || 0;
+      state.rumboMoreOpen = !!rb.closest('.rumbo-more');
+      setRumbo(rl, key, off); refresh(true);
+      var diff = (state.rumboHidden || 0) - before;
+      toast(off ? (diff > 0 ? 'Saqué ' + diff + (diff === 1 ? ' título' : ' títulos') + ' que iban por el lado de ' + labelName(key) + '.' : 'Listo, ' + labelName(key) + ' queda fuera del rumbo.') : labelName(key) + ' vuelve al rumbo.');
+      return;
+    }
     var tool = e.target.closest('[data-tool]');
     if (tool) {
       var k = tool.dataset.tool, cur = getList(state.ui.list);
@@ -2870,6 +3071,18 @@ function bind() {
   $('#festGo').addEventListener('click', festFromDraft);
   $('#festTaste').addEventListener('click', festFromTaste);
 
+  /* perfil y barra inferior */
+  $('#profile').addEventListener('click', function (e) { var b = e.target.closest('[data-pf]'); if (b && !b.disabled) profileAct(b.dataset.pf, b.dataset.v || ''); });
+  $('#profile').addEventListener('submit', function (e) { e.preventDefault(); var inp = $('#pfName'); if (inp) { state.settings.myName = inp.value.replace(/[<>]/g, '').trim().slice(0, 30); saveSettings(); inp.blur(); toast('Listo.'); renderProfile(); } });
+  $('#profile').addEventListener('focusout', function (e) { if (e.target.id === 'pfName') { var v = e.target.value.replace(/[<>]/g, '').trim().slice(0, 30); if (v !== (state.settings.myName || '')) { state.settings.myName = v; saveSettings(); } } });
+  $('#tabbar').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-tab]'); if (!b) return;
+    var t = b.dataset.tab;
+    if (t === 'pick') { openGuide(); return; }
+    if (t === 'fest') { openFest(); return; }
+    setView(t);
+  });
+
   /* de a dos */
   $('#duoBtn').addEventListener('click', openDuo);
   var du = $('#dlgDuo');
@@ -2957,6 +3170,6 @@ function boot() {
   start();
 }
 
-if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') window.__cartelera = { state: state, refresh: refresh, scoreFor: scoreFor, recommend: recommend, curFind: curFind, cur: function () { return CUR; }, openFest: openFest, openGuide: openGuide, openDuo: openDuo, packTaste: packTaste, unpackTaste: unpackTaste, comps: function () { return COMP; }, seenNow: seenNow, guide: function () { return state.guide; }, tasteProfile: tasteProfile, tasteSeeds: tasteSeeds, inviteUrl: inviteUrl, openReco: openReco, openPerson: openPerson, allSig: allSig, mergeUsers: mergeUsers, normUser: normUser, contentKey: contentKey, listKeys: listKeys, pairUrl: pairUrl, syncNow: syncNow };
+if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') window.__cartelera = { state: state, refresh: refresh, scoreFor: scoreFor, recommend: recommend, curFind: curFind, cur: function () { return CUR; }, openFest: openFest, openGuide: openGuide, rumboOf: rumboOf, rumboOut: rumboOut, itemLabels: itemLabels, openDuo: openDuo, packTaste: packTaste, unpackTaste: unpackTaste, comps: function () { return COMP; }, seenNow: seenNow, guide: function () { return state.guide; }, tasteProfile: tasteProfile, tasteSeeds: tasteSeeds, inviteUrl: inviteUrl, openReco: openReco, openPerson: openPerson, allSig: allSig, mergeUsers: mergeUsers, normUser: normUser, contentKey: contentKey, listKeys: listKeys, pairUrl: pairUrl, syncNow: syncNow };
 boot();
 })();

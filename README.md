@@ -37,3 +37,6 @@ Para elegir con otra persona. Cada uno puede generar un link con su gusto (lo qu
 
 - **Cine de la India:** el filtro "Ocultar cine de la India" (activado por defecto) saca Bollywood y las demás industrias indias por idioma original, en catálogo, recomendaciones y festivales. Las búsquedas por título y tus listas no se filtran.
 - **Botón Atrás:** cada ficha, diálogo o vista especial suma una entrada al historial, así Atrás vuelve a la pantalla anterior (por ejemplo, de "Más como esta" a la ficha de la que venías). En la pantalla principal hay que tocarlo dos veces seguidas para salir.
+- **Rumbo de un festival:** cada festival muestra las etiquetas de sus pelis base. Sacar una oculta los títulos en los que lo sacado pesa más que lo que queda (por ejemplo, sin "Bélico" se van las de guerra y acción y quedan los dramas de guerra) y orienta lo que se suma después. Es reversible y se sincroniza con la lista.
+- **Perfil:** vistas recientes, listas y festivales, watch buddies y un resumen de tu gusto (género, etiquetas, tono y década favoritas, horas en pantalla, promedio, joya escondida, opinión impopular).
+- **En el celu:** barra inferior con Catálogo, Listas, Elegime, Festivales y Perfil; Ajustes está dentro de Perfil.
