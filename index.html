@@ -170,7 +170,28 @@
     <h2 id="festTitle">Festivales</h2>
     <nav class="fest-nav" id="festNav" aria-label="Géneros"></nav>
   </div>
-  <div class="fest-body" id="festBody"></div>
+  <div class="fest-body">
+    <section class="fest-new" id="festNew">
+      <h3 class="fest-h">Nuevo festival</h3>
+      <p class="hint">Un festival es una lista que se completa sola: elegís unas pelis base y la lleno con parecidas, afinadas con lo que marcaste como visto y tus estrellas. Se guarda con tus listas y se sincroniza igual, así que lo podés renombrar, sumarle o sacarle títulos, o borrarlo como cualquier otra.</p>
+      <div class="fest-form">
+        <label class="sr" for="festNameInp">Nombre del festival</label>
+        <input class="inp" id="festNameInp" maxlength="40" placeholder="Nombre (opcional)" autocomplete="off">
+        <div class="ac">
+          <label class="sr" for="festQ">Buscar pelis o series base</label>
+          <input class="inp" id="festQ" type="search" placeholder="Sumá pelis o series base (hasta 8)" autocomplete="off" enterkeyhint="search">
+          <div class="ac-list" id="festAc" role="listbox" hidden></div>
+        </div>
+        <div class="fest-seeds" id="festSeeds"></div>
+        <div class="fest-row">
+          <button class="btn btn-accent" type="button" id="festGo" disabled>Armar festival</button>
+          <button class="btn" type="button" id="festTaste">Con lo que más me gustó</button>
+        </div>
+      </div>
+    </section>
+    <div id="festMine"></div>
+    <div id="festBody"></div>
+  </div>
 </dialog>
 
 <dialog id="dlgSettings" aria-labelledby="setTitle">

@@ -41,7 +41,8 @@ var ICON = {
   plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
   check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>',
   x: '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>',
-  star: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="m12 2.8 2.8 5.9 6.4.8-4.7 4.4 1.2 6.4L12 17.2l-5.7 3.1 1.2-6.4-4.7-4.4 6.4-.8z"/></svg>'
+  star: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="m12 2.8 2.8 5.9 6.4.8-4.7 4.4 1.2 6.4L12 17.2l-5.7 3.1 1.2-6.4-4.7-4.4 6.4-.8z"/></svg>',
+  ticket: '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16v3a2 2 0 0 0 0 4v3H4v-3a2 2 0 0 0 0-4z"/><path d="M14.5 7.5v9" stroke-dasharray="1.6 2.2"/></svg>'
 };
 
 /* ---------- domain constants ---------- */
@@ -154,6 +155,7 @@ var state = {
   ui: Object.assign({ view: 'catalog', type: 'movie', list: 'watchlist', source: 'mine', sortCatalog: 'rating', sortLists: 'added', sortReco: 'match', sortPerson: 'year' }, LS.get('ui', {})),
   f: Object.assign(defaultFilters(), LS.get('filters', {})),
   q: '',
+  festDraft: [], festAc: [],
   catalogs: { movie: null, tv: null },
   catIdx: { movie: null, tv: null },
   loading: { movie: null, tv: null },
@@ -206,7 +208,13 @@ function toggleSeen(it) {
   touchUser();
   return on;
 }
-function setStar(it, n) { state.user.stars[it.k] = { n: n, at: now() }; state.user.items[it.k] = snapshot(it); touchUser(); }
+function setStar(it, n) {
+  var t = now(), marked = false;
+  state.user.stars[it.k] = { n: n, at: t };
+  if (n > 0 && !isSeen(it.k)) { state.user.seen[it.k] = t; marked = true; }
+  state.user.items[it.k] = snapshot(it); touchUser();
+  return marked;
+}
 function createList(name) {
   name = String(name || '').trim().slice(0, 40); if (!name) return null;
   var t = now();
@@ -843,7 +851,7 @@ function renderListbar() {
   if (bar.hidden) return;
   var cur = state.ui.list;
   if (cur !== 'seen' && !getList(cur)) cur = state.ui.list = 'watchlist';
-  var pills = visibleLists().map(function (l) { return '<button class="lpill" type="button" data-list="' + esc(l.id) + '" aria-pressed="' + (l.id === cur) + '">' + esc(l.name) + ' <span class="n">' + nf.format(listKeys(l).length) + '</span></button>'; });
+  var pills = visibleLists().map(function (l) { var fest = isRadio(l); return '<button class="lpill' + (fest ? ' is-fest' : '') + '" type="button" data-list="' + esc(l.id) + '" aria-pressed="' + (l.id === cur) + '"' + (fest ? ' title="Festival: una lista que se completa sola"' : '') + '>' + (fest ? ICON.ticket : '') + esc(l.name) + ' <span class="n">' + nf.format(listKeys(l).length) + '</span></button>'; });
   pills.push('<button class="lpill" type="button" data-list="seen" aria-pressed="' + (cur === 'seen') + '">Vistas <span class="n">' + nf.format(seenKeys().length) + '</span></button>');
   var tools = '';
   var l = getList(cur);
@@ -855,12 +863,13 @@ function renderListbar() {
     var count = l ? listKeys(l).length : 0;
     if (l && isRadio(l)) tools += '<button class="btn btn-accent" type="button" data-tool="radio-more"' + (state.radioBusy ? ' disabled' : '') + '>' + (state.radioBusy ? 'Buscando…' : 'Sumar 10 más') + '</button>';
     else if (l && count) tools += '<button class="btn" type="button" data-tool="reco">Parecidas a esta lista</button><button class="btn" type="button" data-tool="radio-from">Armar festival</button>';
+    if (cur === 'seen' && seenKeys().length) tools += '<button class="btn btn-accent" type="button" data-tool="foryou">Recomendaciones para vos</button>';
     if (editable) tools += '<button class="btn btn-ghost" type="button" data-tool="rename">Renombrar</button><button class="btn btn-ghost" type="button" data-tool="delete">' + (state.confirmDelete === l.id ? 'Confirmar borrado' : 'Borrar lista') + '</button>';
   }
   var radioHint = '';
   if (l && isRadio(l) && !state.listEdit) {
     var seeds = Object.keys(l.seeds).map(resolveItem).filter(Boolean).map(function (s) { return s.t; });
-    radioHint = '<p class="hint radio-hint"><span class="radio-tag">Festival</span> Programado a partir de: ' + esc(seeds.join(', ')) + '. Abrí cualquier peli para usarla como base o sacarla del festival.</p>';
+    radioHint = '<p class="hint radio-hint"><span class="radio-tag">Festival</span> Una lista que se completa sola. Programado a partir de: ' + esc(seeds.join(', ')) + '. Abrí cualquier peli para usarla como base o sacarla del festival.</p>';
   }
   bar.innerHTML = pills.join('') + '<span class="list-tools">' + tools + '</span>' + radioHint;
   var inp = $('#newListInp') || $('#renListInp'); if (inp) inp.focus();
@@ -1056,7 +1065,7 @@ function renderDetail() {
         '<div class="actions">' +
           '<button class="btn" type="button" data-dact="watch" aria-pressed="' + watch + '">' + (watch ? 'En Mi lista' : 'Sumar a Mi lista') + '</button>' +
           '<button class="btn" type="button" data-dact="seen" aria-pressed="' + seen + '">' + (seen ? 'Vista' : 'Marcar como vista') + '</button>' +
-          '<span class="stars" role="group" aria-label="Tu puntaje">' + starBtns + '</span>' +
+          '<span class="stars" role="group" aria-label="Tu puntaje" title="Tu puntaje: afina tus recomendaciones">' + starBtns + '</span>' +
         '</div>' +
         '<div class="actions-2">' +
           '<button class="btn" type="button" data-dact="reco">Más como esta</button>' +
@@ -1342,13 +1351,17 @@ function curShownTitle(f) {
 function festName(sec) { return ('Festival ' + (CUR.labels.sec[sec] || sec)).slice(0, 40); }
 function festList(sec) { var n = festName(sec); return visibleLists().filter(function (l) { return l.name === n && isRadio(l); })[0] || null; }
 function renderFest() {
-  var body = $('#festBody'), nav = $('#festNav');
-  if (!CUR) { nav.innerHTML = ''; body.innerHTML = '<p class="hint">No pude cargar la curaduría. Revisá la conexión y probá de nuevo.</p>'; return; }
+  var body = $('#festBody'), nav = $('#festNav'), mine = $('#festMine');
+  var fests = visibleLists().filter(isRadio);
+  mine.innerHTML = fests.length ? '<section class="fest-sec" id="festMineSec"><h3 class="fest-h">Tus festivales</h3><p class="hint">Están también en Listas, junto a las demás.</p><div class="fest-mine">' +
+    fests.map(function (l) { return '<button class="lpill is-fest" type="button" data-openlist="' + esc(l.id) + '">' + ICON.ticket + esc(l.name) + ' <span class="n">' + nf.format(listKeys(l).length) + '</span></button>'; }).join('') + '</div></section>' : '';
+  var jumps = '<button type="button" class="pchip" data-fjump="festNew">Nuevo</button>' + (fests.length ? '<button type="button" class="pchip" data-fjump="festMineSec">Tus festivales</button>' : '');
+  if (!CUR) { nav.innerHTML = jumps; body.innerHTML = '<p class="hint fest-sec">No pude cargar los festivales prearmados. Revisá la conexión y probá de nuevo.</p>'; return; }
   var L = CUR.labels.sec, counts = {};
   CUR.films.forEach(function (f) { counts[f.sec] = (counts[f.sec] || 0) + 1; });
   var groups = CUR.groups.map(function (g) { return [g[0], g[1].filter(function (x) { return counts[x]; })]; }).filter(function (g) { return g[1].length; });
-  nav.innerHTML = groups.map(function (g, i) { return '<button type="button" class="pchip" data-fgrp="' + i + '">' + esc(g[0]) + '</button>'; }).join('');
-  body.innerHTML = '<p class="hint">Secciones armadas a mano. Elegí una y programo el festival con sus títulos más representativos, más los parecidos que encuentre en TMDB.</p>' +
+  nav.innerHTML = jumps + groups.map(function (g, i) { return '<button type="button" class="pchip" data-fjump="fg' + i + '">' + esc(g[0]) + '</button>'; }).join('');
+  body.innerHTML = '<div class="fest-sec" id="festPre"><h3 class="fest-h">Prearmados</h3><p class="hint">Secciones curadas a mano. Tocá una y la programo con sus títulos más representativos, más los parecidos que encuentre. El resultado es una lista más, igual que las que armás vos.</p></div>' +
     groups.map(function (g, i) {
       return '<section class="fest-g" id="fg' + i + '"><h3>' + esc(g[0]) + '</h3><div class="fest-secs">' + g[1].map(function (x) {
         var sample = curSectionFilms(x).slice(0, 4).map(curShownTitle).join(' · ');
@@ -1360,18 +1373,63 @@ function renderFest() {
 }
 function openFest() {
   var d = $('#dlgFest');
-  (CUR ? Promise.resolve() : loadCuraduria()).then(function () { renderFest(); openDialog(d); d.scrollTop = 0; });
+  (CUR ? Promise.resolve() : loadCuraduria()).then(function () { renderFest(); renderFestDraft(); openDialog(d); d.scrollTop = 0; });
+}
+/* armar un festival nuevo a mano: nombre opcional y hasta 8 títulos base */
+function renderFestDraft() {
+  var seeds = state.festDraft;
+  $('#festSeeds').innerHTML = seeds.map(function (it) {
+    return '<span class="pchip">' + esc(it.t) + (it.y ? ' (' + it.y + ')' : '') + '<button type="button" data-unseed="' + esc(it.k) + '" aria-label="Sacar ' + esc(it.t) + '">' + ICON.x + '</button></span>';
+  }).join('');
+  $('#festGo').disabled = !seeds.length;
+  $('#festGo').textContent = seeds.length ? 'Armar festival con ' + seeds.length + (seeds.length === 1 ? ' título' : ' títulos') : 'Armar festival';
+  $('#festTaste').disabled = !tasteSeeds(1).length;
+  $('#festTaste').title = $('#festTaste').disabled ? 'Marcá como vistas o puntuá algunas pelis primero' : 'Usa lo que puntuaste con 4 y 5 estrellas';
+}
+var festSearch = debounce(async function (q) {
+  var box = $('#festAc');
+  if (q.length < 2) { box.hidden = true; return; }
+  try {
+    var d = await tmdb('/search/multi', { query: q, language: state.settings.lang, include_adult: 'false' });
+    if ($('#festQ').value.trim() !== q) return;
+    var res = (d.results || []).filter(function (r) { return (r.media_type === 'movie' || r.media_type === 'tv') && r.id && !r.adult; })
+      .slice(0, 7).map(function (r) { return fromCatalog(norm(r, r.media_type)); });
+    state.festAc = res;
+    box.innerHTML = res.length ? res.map(function (it, i) {
+      return '<button class="ac-item" type="button" role="option" data-fseed="' + i + '"><b>' + esc(it.t) + '</b><span>' + esc([it.type === 'tv' ? 'Serie' : 'Película', it.y].filter(Boolean).join(' · ')) + '</span></button>';
+    }).join('') : '<p class="ac-empty">No encontré nada con ese nombre.</p>';
+    box.hidden = false;
+  } catch (e) { if (e.fatal) fatal(e); else toast(e.message); }
+}, 300);
+function festAddSeed(it) {
+  if (!it) return;
+  if (state.festDraft.some(function (x) { return x.k === it.k; })) { toast('Ya está entre las pelis base.'); return; }
+  if (state.festDraft.length >= 8) { toast('Hasta 8 títulos base.'); return; }
+  state.festDraft.push(it); renderFestDraft();
+}
+function festFromDraft() {
+  var seeds = state.festDraft.slice(); if (!seeds.length) return;
+  var name = $('#festNameInp').value.trim();
+  state.festDraft = []; $('#festNameInp').value = ''; $('#festQ').value = ''; renderFestDraft();
+  closeDialog($('#dlgFest'));
+  createRadio(seeds, name || null);
+}
+function festFromTaste() {
+  var seeds = tasteSeeds(6); if (!seeds.length) return;
+  var ex = visibleLists().filter(function (l) { return l.name === 'Festival a tu gusto' && isRadio(l); })[0];
+  closeDialog($('#dlgFest'));
+  if (ex) { openList(ex); toast('Ya tenías este festival. Con «Sumar 10 más» le agregás títulos.'); return; }
+  createRadio(seeds, 'Festival a tu gusto');
+}
+function openList(l) {
+  closeDialog($('#dlgFest')); closeDialog($('#dlgDetail'));
+  state.special = null; state.ui.view = 'lists'; state.ui.list = l.id; state.listEdit = null;
+  refresh(); window.scrollTo(0, 0);
 }
 function startSectionFestival(sec, btn) {
   if (!CUR || !btn || btn.disabled) return;
   var ex = festList(sec);
-  if (ex) {
-    closeDialog($('#dlgFest')); closeDialog($('#dlgDetail'));
-    state.special = null; state.ui.view = 'lists'; state.ui.list = ex.id; state.listEdit = null;
-    refresh(); window.scrollTo(0, 0);
-    toast('Ya tenías este festival. Con «Sumar 10 más» le agregás títulos.');
-    return;
-  }
+  if (ex) { openList(ex); toast('Ya tenías este festival. Con «Sumar 10 más» le agregás títulos.'); return; }
   var prev = btn.innerHTML, restore = function () { btn.disabled = false; btn.removeAttribute('aria-busy'); btn.innerHTML = prev; };
   btn.disabled = true; btn.setAttribute('aria-busy', 'true');
   btn.innerHTML = btn.classList.contains('fsec') ? '<span class="fsec-n">Eligiendo las pelis base…</span>' : 'Eligiendo las pelis base…';
@@ -1463,6 +1521,7 @@ async function recommend(seeds, progress) {
     infos.push(await seedInfo(seeds[i]));
   }
   var seedKeys = new Set(seeds.map(function (s) { return s.k; }));
+  var prof = tasteProfile();
   var agg = new Map();
   infos.forEach(function (info) {
     info.cands.forEach(function (c) {
@@ -1477,25 +1536,29 @@ async function recommend(seeds, progress) {
   });
   var out = [];
   agg.forEach(function (a) {
+    var mine = starOf(a.it.k); if (mine && mine <= 2) return;
     var parts = [], dirs = Object.keys(a.dirs), kws = Object.keys(a.kws), cur = Object.keys(a.cur);
+    var ta = tasteAdj(a.it, prof, dirs, seedKeys);
+    if (ta.because) parts.push('Porque te gustó ' + ta.because);
     if (a.rel) parts.push('Pariente directo');
     if (dirs.length) parts.push('De ' + dirs.slice(0, 2).join(' y '));
     if (cur.length) parts.push('Comparte: ' + cur.slice(0, 3).join(', '));
     else if (kws.length) parts.push('Temas: ' + kws.slice(0, 3).join(', '));
     if (a.rec && !cur.length) parts.push('TMDB la recomienda');
     if (!parts.length && a.genre) parts.push('Mismo género');
-    out.push({ it: fromCatalog(a.it), match: a.sum / infos.length + 0.08 * Math.max(0, a.hits - 1), why: parts.join(' · ') });
+    out.push({ it: fromCatalog(a.it), match: a.sum / infos.length + 0.08 * Math.max(0, a.hits - 1) + ta.d, why: parts.slice(0, 3).join(' · ') });
   });
   out.sort(function (x, y) { return y.match - x.match; });
   return out.slice(0, 120);
 }
-async function openReco(seeds) {
+async function openReco(seeds, opts) {
+  opts = opts || {};
   seeds = seeds.filter(Boolean).slice(0, 8);
   if (!seeds.length) return;
-  closeDialog($('#dlgDetail')); closeMenu(); closeRail();
-  var title = seeds.length === 1 ? 'Parecidas a ' + seeds[0].t : 'Parecidas a tu selección';
+  closeDialog($('#dlgDetail')); closeDialog($('#dlgFest')); closeMenu(); closeRail();
+  var title = opts.title || (seeds.length === 1 ? 'Parecidas a ' + seeds[0].t : 'Parecidas a tu selección');
   clearQuery();
-  var sp = state.special = { kind: 'reco', title: title, seeds: seeds, items: [], meta: new Map(), loading: true };
+  var sp = state.special = { kind: 'reco', title: title, festName: opts.festName || null, seeds: seeds, items: [], meta: new Map(), loading: true };
   state.ui.sortReco = 'match';
   refresh(); window.scrollTo(0, 0);
   try {
@@ -1509,6 +1572,71 @@ async function openReco(seeds) {
     if (e.fatal) { fatal(e); return; }
     if (state.special === sp) { sp.loading = false; sp.error = e.message; refresh(); }
   }
+}
+
+/* ---------- tu gusto ----------
+   Las vistas y las estrellas arman un perfil: 5★ y 4★ suman, 2★ y 1★ restan, 3★ es neutro
+   y una vista sin puntaje suma poquito. Ese perfil corrige el puntaje de cada recomendación
+   (y de cada festival) según los géneros que te gustan, el parecido con lo que puntuaste
+   alto o bajo (por la curaduría) y los directores de lo que te gustó. Pesa más cuantas
+   más pelis puntuaste. */
+var TASTE_W = [0, -1, -0.6, 0, 0.6, 1];
+function tasteProfile() {
+  var u = state.user, keys = new Set(Object.keys(u.stars).filter(function (k) { return starOf(k) > 0; }).concat(seenKeys()));
+  var p = { genres: {}, dirs: {}, liked: [], disliked: [], rated: 0, seenOnly: 0, conf: 0 };
+  keys.forEach(function (k) {
+    var it = u.items[k]; if (!it) return;
+    var n = starOf(k), w = n ? TASTE_W[n] : 0.15;
+    if (n) p.rated++; else p.seenOnly++;
+    if (!w) return;
+    (it.g || []).forEach(function (g) { p.genres[g] = (p.genres[g] || 0) + w; });
+    var info = state.seedCache[k];
+    if (info) info.dirs.forEach(function (d) { p.dirs[d.name] = (p.dirs[d.name] || 0) + w; });
+    var at = n ? u.stars[k].at : 0, cf = curFind(it);
+    if (w >= 0.6) p.liked.push({ it: it, w: w, cf: cf, at: at });
+    else if (w < 0) p.disliked.push({ it: it, w: w, cf: cf, at: at });
+  });
+  var mx = 0; Object.keys(p.genres).forEach(function (g) { mx = Math.max(mx, Math.abs(p.genres[g])); });
+  if (mx) Object.keys(p.genres).forEach(function (g) { p.genres[g] /= mx; });
+  var recent = function (a, b) { return b.at - a.at; };
+  p.liked = p.liked.sort(recent).slice(0, 60); p.disliked = p.disliked.sort(recent).slice(0, 60);
+  p.conf = Math.min(1, (p.rated + 0.3 * p.seenOnly) / 8);
+  return p;
+}
+function tasteAdj(it, p, dirs, seedKeys) {
+  if (!p || !p.conf) return { d: 0, because: null };
+  var g = it.g || [], gs = 0;
+  g.forEach(function (x) { gs += p.genres[x] || 0; });
+  var d = 0.08 * (g.length ? gs / g.length : 0), because = null;
+  var cf = curFind(it);
+  if (cf) {
+    var near = function (l) { return Math.min(1, curSim(l.cf, cf) + (curRel(l.cf, cf) ? 0.3 : 0)); };
+    var best = 0, worst = 0;
+    p.liked.forEach(function (l) { if (!l.cf || l.cf.id === cf.id) return; var s = near(l) * l.w; if (s > best) { best = s; because = s >= 0.4 && !(seedKeys && seedKeys.has(l.it.k)) ? l.it.t : null; } });
+    p.disliked.forEach(function (l) { if (!l.cf || l.cf.id === cf.id) return; var s = near(l) * -l.w; if (s > worst) worst = s; });
+    d += 0.16 * best - 0.16 * worst;
+  }
+  (dirs || []).forEach(function (n) { var w = p.dirs[n]; if (w) d += 0.05 * Math.max(-1, Math.min(1, w)); });
+  return { d: d * p.conf, because: because };
+}
+/* semillas para "Para vos": lo mejor puntuado, sin repetir demasiado el mismo género */
+function tasteSeeds(n) {
+  var u = state.user;
+  var keys = Object.keys(u.stars).filter(function (k) { return starOf(k) >= 4 && u.items[k]; })
+    .sort(function (a, b) { return starOf(b) - starOf(a) || u.stars[b].at - u.stars[a].at; });
+  if (keys.length < 3) seenKeys().forEach(function (k) { if (!starOf(k) && u.items[k] && keys.indexOf(k) < 0) keys.push(k); });
+  var out = [], perGenre = {}, rest = [];
+  keys.forEach(function (k) {
+    var g = (u.items[k].g || [])[0] || 0;
+    if (out.length < n && (perGenre[g] || 0) < 2) { out.push(k); perGenre[g] = (perGenre[g] || 0) + 1; } else rest.push(k);
+  });
+  rest.forEach(function (k) { if (out.length < n) out.push(k); });
+  return out.map(resolveItem);
+}
+function openForYou() {
+  var seeds = tasteSeeds(6);
+  if (!seeds.length) { toast('Marcá como vistas o puntuá algunas y te recomiendo según eso.'); return; }
+  openReco(seeds, { title: 'Para vos', festName: 'Festival a tu gusto' });
 }
 
 /* ---------- radios ---------- */
@@ -1875,13 +2003,13 @@ function bind() {
     state.f.people = state.f.people.filter(function (p) { return p.id !== id; });
     renderPeopleChips(); refresh();
   });
-  document.addEventListener('pointerdown', function (e) { if (!e.target.closest('.ac')) $('#personAc').hidden = true; });
+  document.addEventListener('pointerdown', function (e) { if (!e.target.closest('.ac')) { $('#personAc').hidden = true; $('#festAc').hidden = true; } });
   $('#specialBar').addEventListener('click', function (e) {
     var sp = state.special; if (!sp) return;
     var tab = e.target.closest('[data-ptab]');
     if (tab && sp.tabs) { sp.tab = tab.dataset.ptab; sp.items = sp.tabs[sp.tab]; refresh(); wantDetails(sp.items.slice(0, 150), 'lo'); return; }
     if (e.target.closest('[data-pfilter]')) { var id = sp.id, name = sp.title; state.special = null; state.ui.view = 'catalog'; addPersonFilter(id, name); renderRail(); toast('Mostrando lo que hizo ' + name + '. Lo sacás desde Filtros.'); return; }
-    if (e.target.closest('[data-mkradio]')) { createRadio(sp.seeds); }
+    if (e.target.closest('[data-mkradio]')) { createRadio(sp.seeds, sp.festName); }
   });
 
   /* rail */
@@ -1955,6 +2083,7 @@ function bind() {
     if (tool) {
       var k = tool.dataset.tool, cur = getList(state.ui.list);
       if (k === 'radio-more' && cur) { radioMore(cur); return; }
+      if (k === 'foryou') { openForYou(); return; }
       if (k === 'reco' && cur) { openReco(listKeys(cur).slice(0, 8).map(resolveItem)); return; }
       if (k === 'radio-from' && cur) { createRadio(listKeys(cur).slice(0, 8).map(resolveItem), 'Festival ' + cur.name); return; }
       if (k === 'new' || k === 'rename') { state.listEdit = k; renderListbar(); }
@@ -2016,7 +2145,7 @@ function bind() {
       renderDetail(); updateCard(it.k); if (state.ui.view === 'lists') refreshSoon(); return;
     }
     var st = e.target.closest('[data-star]');
-    if (st) { var n = +st.dataset.star; setStar(it, starOf(it.k) === n ? 0 : n); renderDetail(); updateCard(it.k); return; }
+    if (st) { var n = +st.dataset.star; if (setStar(it, starOf(it.k) === n ? 0 : n)) toast('Puntuada y marcada como vista.'); renderDetail(); updateCard(it.k); return; }
     var dl = e.target.closest('[data-dlist]');
     if (dl) { toggleList(dl.dataset.dlist, it); renderDetail(); if (state.ui.view === 'lists') refreshSoon(); }
   });
@@ -2027,11 +2156,24 @@ function bind() {
   var df = $('#dlgFest');
   df.addEventListener('click', function (e) {
     if (e.target === df || e.target.closest('[data-close]')) { closeDialog(df); return; }
-    var g = e.target.closest('[data-fgrp]');
-    if (g) { var sec = document.getElementById('fg' + g.dataset.fgrp); if (sec) sec.scrollIntoView({ block: 'start', behavior: 'smooth' }); return; }
+    var g = e.target.closest('[data-fjump]');
+    if (g) { var sec = document.getElementById(g.dataset.fjump); if (sec) sec.scrollIntoView({ block: 'start', behavior: 'smooth' }); return; }
+    var fs = e.target.closest('[data-fseed]');
+    if (fs) { festAddSeed((state.festAc || [])[+fs.dataset.fseed]); $('#festAc').hidden = true; $('#festQ').value = ''; $('#festQ').focus(); return; }
+    var us = e.target.closest('[data-unseed]');
+    if (us) { state.festDraft = state.festDraft.filter(function (x) { return x.k !== us.dataset.unseed; }); renderFestDraft(); return; }
+    var ol = e.target.closest('[data-openlist]');
+    if (ol) { var l = getList(ol.dataset.openlist); if (l) openList(l); return; }
     var b = e.target.closest('[data-fsec]');
     if (b) startSectionFestival(b.dataset.fsec, b);
   });
+  $('#festQ').addEventListener('input', function (e) { festSearch(e.target.value.trim()); });
+  $('#festQ').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); var first = $('#festAc .ac-item'); if (first) first.click(); }
+    if (e.key === 'Escape' && !$('#festAc').hidden) { e.preventDefault(); $('#festAc').hidden = true; }
+  });
+  $('#festGo').addEventListener('click', festFromDraft);
+  $('#festTaste').addEventListener('click', festFromTaste);
 
   /* settings dialog */
   var ds = $('#dlgSettings');
@@ -2099,6 +2241,6 @@ function boot() {
   start();
 }
 
-if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') window.__cartelera = { state: state, refresh: refresh, scoreFor: scoreFor, recommend: recommend, curFind: curFind, cur: function () { return CUR; }, openFest: openFest, inviteUrl: inviteUrl, openReco: openReco, openPerson: openPerson, allSig: allSig, mergeUsers: mergeUsers, normUser: normUser, contentKey: contentKey, listKeys: listKeys, pairUrl: pairUrl, syncNow: syncNow };
+if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') window.__cartelera = { state: state, refresh: refresh, scoreFor: scoreFor, recommend: recommend, curFind: curFind, cur: function () { return CUR; }, openFest: openFest, tasteProfile: tasteProfile, tasteSeeds: tasteSeeds, inviteUrl: inviteUrl, openReco: openReco, openPerson: openPerson, allSig: allSig, mergeUsers: mergeUsers, normUser: normUser, contentKey: contentKey, listKeys: listKeys, pairUrl: pairUrl, syncNow: syncNow };
 boot();
 })();

@@ -306,7 +306,18 @@ dialog[open].fallback{position:fixed;top:14px;left:0;right:0;margin:0 auto;z-ind
 .fest-nav .pchip{flex:none;padding:5px 12px;border-color:var(--line)}
 .fest-nav .pchip:hover{border-color:var(--accent)}
 .fest-body{padding:6px 26px 28px}
-.fest-body > .hint{margin:12px 0 0}
+.fest-h{font:800 24px/1 var(--f-display);text-transform:uppercase;letter-spacing:.04em;margin:0 0 8px;color:var(--fg)}
+.fest-sec{margin-top:30px;scroll-margin-top:118px}
+.fest-sec .hint{margin:0}
+.fest-new{margin-top:18px;scroll-margin-top:118px;border:1px solid var(--line);border-radius:12px;padding:16px 18px 18px;background:var(--surface)}
+.fest-new .hint{margin:0}
+.fest-form{display:flex;flex-direction:column;gap:10px;margin-top:14px}
+.fest-form .inp{width:100%;background:var(--bg)}
+.fest-seeds{display:flex;flex-wrap:wrap;gap:6px}
+.fest-seeds:empty{display:none}
+.fest-row{display:flex;flex-wrap:wrap;gap:8px}
+.fest-mine{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.lpill.is-fest svg{color:var(--accent)}
 .fest-g{scroll-margin-top:118px;margin-top:22px}
 .fest-g h3{font:800 21px/1 var(--f-display);text-transform:uppercase;letter-spacing:.06em;color:var(--accent);margin:0 0 10px}
 .fest-secs{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px}
