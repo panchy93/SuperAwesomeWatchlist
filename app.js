@@ -188,10 +188,10 @@ LS.set('user', state.user);
 function saveUi() { LS.set('ui', state.ui); LS.set('filters', state.f); }
 function saveSettings() { LS.set('settings', state.settings); }
 var saveCachesSoon = debounce(function () { LS.set('details', state.details); LS.set('omdb', state.omdb); }, 1500);
-function touchUser() { state.user.updatedAt = now(); LS.set('user', state.user); syncSoon(); }
+function touchUser() { state.user.updatedAt = now(); LS.set('user', state.user); syncSoon(); if (cloudIn()) { cloudPushSoon(); if (CLOUD.shared.size) pushSharedSoon(); } }
 
 /* ---------- list accessors ---------- */
-function visibleLists() { return state.user.lists.filter(function (l) { return !l.deletedAt; }); }
+function visibleLists() { return state.user.lists.concat(CLOUD && CLOUD.shared ? sharedLists() : []).filter(function (l) { return !l.deletedAt; }); }
 function getList(id) { return visibleLists().filter(function (l) { return l.id === id; })[0] || null; }
 function isIn(l, k) { return !!l && (l.adds[k] || 0) > (l.rms[k] || 0); }
 function inList(id, k) { return isIn(getList(id), k); }
@@ -254,6 +254,13 @@ async function tmdb(path, params) {
 
 function omdbUsage() { var u = LS.get('omdbUsage', null); if (!u || u.day !== today()) u = { day: today(), n: 0 }; return u; }
 async function fetchOmdb(imdb) {
+  var c = /^tt\d{5,10}$/.test(imdb) ? await omdbFromCloud(imdb) : null;
+  if (c) return c;
+  var r = await fetchOmdbDirect(imdb);
+  if (r && /^tt\d{5,10}$/.test(imdb)) omdbToCloud(imdb, r);
+  return r;
+}
+async function fetchOmdbDirect(imdb) {
   if (state.omdbStop) throw AppError('omdb-stop', state.omdbStop);
   if (!/^tt\d{5,10}$/.test(imdb)) return { none: true, at: Date.now() };
   var u = omdbUsage();
@@ -554,6 +561,7 @@ function resolveItem(k) {
   var type = typeOfKey(k), idx = catIndex(type);
   var fromCat = idx && idx.get(k); if (fromCat) return fromCat;
   var snap = state.user.items[k];
+  if (!snap && CLOUD && CLOUD.shared) CLOUD.shared.forEach(function (l) { if (!snap && l.items[k]) snap = l.items[k]; });
   if (!snap) snap = cleanSnap({ t: 'Título ' + k.slice(2) }, k);
   return Object.assign({}, snap, { s: [], off: !!state.catalogs[type] });
 }
@@ -878,18 +886,24 @@ function rumboHTML(l) {
     '<div class="rumbo-chips">' + ch.base.map(function (k) { return chip(k); }).join('') + '</div>' +
     (ch.more.length ? '<details class="rumbo-more"' + (state.rumboMoreOpen ? ' open' : '') + '><summary>Más etiquetas</summary><div class="rumbo-chips">' + ch.more.map(function (k) { return chip(k, ch.freq[k]); }).join('') + '</div></details>' : '') + '</div>';
 }
+function shareCandidates(l) { return cloudIn() ? CLOUD.buddies.filter(function (b) { return !b.pending && (l.members || []).indexOf(b.uid) < 0; }) : []; }
 function renderListbar() {
   var bar = $('#listbar');
   bar.hidden = state.ui.view !== 'lists' || !!state.special;
   if (bar.hidden) return;
   var cur = state.ui.list;
   if (cur !== 'seen' && !getList(cur)) cur = state.ui.list = 'watchlist';
-  var pills = visibleLists().map(function (l) { var fest = isRadio(l); return '<button class="lpill' + (fest ? ' is-fest' : '') + '" type="button" data-list="' + esc(l.id) + '" aria-pressed="' + (l.id === cur) + '"' + (fest ? ' title="Festival: una lista que se completa sola"' : '') + '>' + (fest ? ICON.ticket : '') + esc(l.name) + ' <span class="n">' + nf.format(listKeys(l).length) + '</span></button>'; });
+  var pills = visibleLists().map(function (l) { var fest = isRadio(l); return '<button class="lpill' + (fest ? ' is-fest' : '') + (l.shared ? ' is-shared' : '') + '" type="button" data-list="' + esc(l.id) + '" aria-pressed="' + (l.id === cur) + '"' + (fest ? ' title="Festival: una lista que se completa sola"' : '') + '>' + (fest ? ICON.ticket : '') + (l.shared ? DUO_ICON : '') + esc(l.name) + ' <span class="n">' + nf.format(listKeys(l).length) + '</span></button>'; });
   pills.push('<button class="lpill" type="button" data-list="seen" aria-pressed="' + (cur === 'seen') + '">Vistas <span class="n">' + nf.format(seenKeys().length) + '</span></button>');
   var tools = '';
   var l = getList(cur);
   var editable = l && l.id !== 'watchlist';
   if (state.listEdit === 'new') tools = '<form class="inline-form" data-form="new"><label class="sr" for="newListInp">Nombre</label><input class="inp" id="newListInp" maxlength="40" placeholder="Nombre de la lista"><button class="btn btn-accent" type="submit">Crear</button><button class="btn btn-ghost" type="button" data-cancel>Cancelar</button></form>';
+  else if ((state.listEdit === 'share' || state.listEdit === 'addmember') && l) {
+    var pick = shareCandidates(l), sel = state.shareSel || new Set();
+    tools = '<span class="share-pick"><span class="hint">' + (state.listEdit === 'share' ? 'Compartir con:' : 'Sumar a:') + '</span>' + pick.map(function (b) { return '<button class="g-chip" type="button" data-pick="' + esc(b.uid) + '" aria-pressed="' + sel.has(b.uid) + '">' + esc(b.name) + '</button>'; }).join('') +
+      '<button class="btn btn-accent" type="button" data-tool="share-go"' + (sel.size ? '' : ' disabled') + '>' + (state.listEdit === 'share' ? 'Compartir' : 'Sumar') + '</button><button class="btn btn-ghost" type="button" data-cancel>Cancelar</button></span>';
+  }
   else if (state.listEdit === 'rename' && editable) tools = '<form class="inline-form" data-form="rename"><label class="sr" for="renListInp">Nuevo nombre</label><input class="inp" id="renListInp" maxlength="40" value="' + esc(l.name) + '"><button class="btn btn-accent" type="submit">Guardar</button><button class="btn btn-ghost" type="button" data-cancel>Cancelar</button></form>';
   else {
     tools = '<button class="btn" type="button" data-tool="new"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Nueva lista</button>';
@@ -897,12 +911,19 @@ function renderListbar() {
     if (l && isRadio(l)) tools += '<button class="btn btn-accent" type="button" data-tool="radio-more"' + (state.radioBusy ? ' disabled' : '') + '>' + (state.radioBusy ? 'Buscando…' : 'Sumar 10 más') + '</button>';
     else if (l && count) tools += '<button class="btn" type="button" data-tool="reco">Parecidas a esta lista</button><button class="btn" type="button" data-tool="radio-from">Armar festival</button>';
     if (cur === 'seen' && seenKeys().length) tools += '<button class="btn btn-accent" type="button" data-tool="foryou">' + (duoComp() ? esc(forYouNames().title) : 'Recomendaciones para vos') + '</button>';
-    if (editable) tools += '<button class="btn btn-ghost" type="button" data-tool="rename">Renombrar</button><button class="btn btn-ghost" type="button" data-tool="delete">' + (state.confirmDelete === l.id ? 'Confirmar borrado' : 'Borrar lista') + '</button>';
+    if (l && cloudIn() && shareCandidates(l).length) tools += '<button class="btn" type="button" data-tool="' + (l.shared ? 'addmember' : 'share') + '">' + DUO_ICON + (l.shared ? 'Sumar persona' : 'Compartir') + '</button>';
+    if (editable) tools += '<button class="btn btn-ghost" type="button" data-tool="rename">Renombrar</button>' + (l.shared && l.owner !== cloudUid() ?
+      '<button class="btn btn-ghost" type="button" data-tool="leave">' + (state.confirmDelete === l.id ? 'Confirmar salida' : 'Salir de la lista') + '</button>' :
+      '<button class="btn btn-ghost" type="button" data-tool="delete">' + (state.confirmDelete === l.id ? 'Confirmar borrado' : 'Borrar lista') + '</button>');
   }
   var radioHint = '';
   if (l && isRadio(l) && !state.listEdit) {
     var seeds = Object.keys(l.seeds).map(resolveItem).filter(Boolean).map(function (s) { return s.t; });
     radioHint = '<p class="hint radio-hint"><span class="radio-tag">Festival</span> Una lista que se completa sola. Programado a partir de: ' + esc(seeds.join(', ')) + '. Abrí cualquier peli para usarla como base o sacarla del festival.</p>' + rumboHTML(l);
+  }
+  if (l && l.shared && !state.listEdit) {
+    var others = (l.members || []).filter(function (m) { return m !== cloudUid(); }).map(function (m) { return l.memberNames[m] || 'alguien'; });
+    radioHint = '<p class="hint share-hint">' + DUO_ICON + ' Compartida con ' + esc(others.join(', ') || 'nadie más') + '. Todos pueden sumar, sacar' + (isRadio(l) ? ', cambiar el rumbo y sumar más; el festival se programa con el gusto de los dos.' : ' y renombrar.') + '</p>' + radioHint;
   }
   bar.innerHTML = pills.join('') + '<span class="list-tools">' + tools + '</span>' + radioHint;
   var inp = $('#newListInp') || $('#renListInp'); if (inp) inp.focus();
@@ -1020,6 +1041,7 @@ async function openDetail(it, pick) {
 function duoRowHTML(it) {
   var c = duoComp(); if (!c) return '';
   var seen = compSeen(c, it.k), st = compStar(c, it.k), b = '';
+  if (c.src === 'cloud') return '<div class="duo-row"><span class="duo-who">' + DUO_ICON + esc(c.name) + '</span><span>' + (seen ? 'La vio' + (st ? ' · ' + '★'.repeat(st) : '') : 'No la vio') + '</span>' + (duoNote(it.k) ? '<span class="hint">' + esc(duoNote(it.k)) + '</span>' : '') + '</div>';
   for (var i = 1; i <= 5; i++) b += '<button class="star' + (i <= st ? ' on' : '') + '" type="button" data-cstar="' + i + '" aria-label="' + i + (i === 1 ? ' estrella' : ' estrellas') + ' de ' + esc(c.name) + '" aria-pressed="' + (i === st) + '">' + ICON.star + '</button>';
   return '<div class="duo-row"><span class="duo-who">' + DUO_ICON + esc(c.name) + '</span><button class="btn" type="button" data-cseen aria-pressed="' + seen + '">' + (seen ? 'La vio' : 'No la vio') + '</button>' +
     '<span class="stars" role="group" aria-label="Puntaje de ' + esc(c.name) + '">' + b + '</span>' + (duoNote(it.k) ? '<span class="hint">' + esc(duoNote(it.k)) + '</span>' : '') + '</div>';
@@ -1655,11 +1677,13 @@ function cleanComp(c) {
   return out;
 }
 function saveComps() { LS.set('companions', COMP); }
+/* gente para ver de a dos: la cargada en este dispositivo y los watch buddies de tu cuenta */
+function allComps() { return COMP.concat(CLOUD && CLOUD.buddies ? CLOUD.buddies : []); }
 var duoState = LS.get('duo', null);
 state.duo = duoState && typeof duoState.id === 'string' && +duoState.until > Date.now() && COMP.some(function (c) { return c.id === duoState.id; }) ? duoState.id : null;
-function duoComp() { return state.duo ? COMP.filter(function (c) { return c.id === state.duo; })[0] || null : null; }
+function duoComp() { return state.duo ? allComps().filter(function (c) { return c.id === state.duo; })[0] || null : null; }
 function setDuo(id) {
-  state.duo = id && COMP.some(function (c) { return c.id === id; }) ? id : null;
+  state.duo = id && allComps().some(function (c) { return c.id === id; }) ? id : null;
   if (state.duo) LS.set('duo', { id: state.duo, until: Date.now() + 10 * 3600 * 1000 }); else LS.del('duo');
   renderDuoBtn(); refresh();
 }
@@ -1673,7 +1697,7 @@ function itemFor(k) {
   var type = typeOfKey(k), idx = catIndex(type), hit = idx && idx.get(k);
   if (hit) return hit;
   if (state.user.items[k]) return resolveItem(k);
-  for (var i = 0; i < COMP.length; i++) if (COMP[i].items[k]) return Object.assign({}, COMP[i].items[k], { s: [], off: !!state.catalogs[type] });
+  var cs = allComps(); for (var i = 0; i < cs.length; i++) if (cs[i].items[k]) return Object.assign({}, cs[i].items[k], { s: [], off: !!state.catalogs[type] });
   return resolveItem(k);
 }
 function duoNote(k) {
@@ -1850,7 +1874,7 @@ function renderDuoBtn() {
   b.setAttribute('aria-label', c ? 'Viendo con ' + c.name + '. Abrir De a dos' : 'Ver de a dos');
   b.title = c ? 'Viendo con ' + c.name : 'Ver de a dos';
 }
-function openDuo() { closeMenu(); closeRail(); renderDuo(); openDialog($('#dlgDuo')); $('#dlgDuo').scrollTop = 0; }
+function openDuo() { closeMenu(); closeRail(); renderDuo(); openDialog($('#dlgDuo')); $('#dlgDuo').scrollTop = 0; if (cloudIn() && CLOUD.buddies.some(function (c) { return c.pending; })) { CLOUD.retries = 0; loadBuddies(); } }
 function duoTitles(keys, n) { return keys.slice(0, n || 6).map(function (k) { return esc(itemFor(k).t); }).join(' · '); }
 function duoSummary(c) {
   var A = new Set(mySignals().keys()), B = new Set(Object.keys(c.seen).concat(Object.keys(c.stars)));
@@ -1874,18 +1898,31 @@ function duoSummary(c) {
     '</div></div><p class="hint">Mientras estén de a dos: se esconde solo lo que vieron los dos, lo que vio uno solo puede volver a aparecer (salvo que lo haya puntuado mal) y las recomendaciones mezclan los dos gustos, con más peso en lo que les gustó a ambos.</p>' +
     '<div class="fest-row"><button class="btn btn-accent" type="button" data-duo="foryou">Recomendaciones para los dos</button><button class="btn" type="button" data-duo="fest">Armar festival juntos</button><button class="btn" type="button" data-duo="guide">Que elija el acomodador</button></div></section>';
 }
+function buddiesHTML() {
+  if (!cloudIn()) return '<section class="duo-sec"><h3 class="fest-h">Watch buddies</h3><p class="hint">Con tu cuenta de Google, tus buddies ven tu gusto y vos el de ellos sin pasarse links, y pueden tener listas y festivales compartidos.</p>' + cloudCardHTML() + '</section>';
+  var bs = CLOUD.buddies;
+  return '<section class="duo-sec"><h3 class="fest-h">Watch buddies</h3>' + (bs.length ? '<ul class="duo-people">' + bs.map(function (b) {
+    return '<li><span><b>' + esc(b.name) + '</b><small>' + (b.pending ? 'Esperando que acepte' : nf.format(Object.keys(b.seen).length) + ' vistas · se actualiza solo') + '</small></span>' +
+      '<button class="btn btn-ghost" type="button" data-duo="bremove" data-v="' + esc(b.uid) + '">' + (state.duoDel === b.uid ? 'Confirmar' : 'Quitar') + '</button></li>';
+  }).join('') + '</ul>' : '<p class="hint">Todavía no tenés buddies. Invitá a alguien: le llega un link, entra con su Google y listo.</p>') +
+    '<p class="hint">Cada uno decide quién ve su gusto: quitar a alguien le corta el acceso al tuyo.</p><div class="fest-row"><button class="btn btn-accent" type="button" data-duo="binvite">' + DUO_ICON + 'Invitar a un buddy</button></div></section>';
+}
 function renderDuo() {
   var c = duoComp(), imp = state.duoImport, h = '';
+  var offer = state.buddyOffer;
+  if (offer) h += '<div class="duo-imp"><p><b>' + esc(offer.name) + '</b> te invitó a ser su watch buddy. Al aceptar, cada uno ve lo que vio y puntuó el otro, y pueden compartir listas y festivales.</p><div class="fest-row"><button class="btn btn-accent" type="button" data-duo="baccept">Aceptar</button><button class="btn btn-ghost" type="button" data-duo="bdecline">Ahora no</button></div></div>';
+  else if (CLOUD.pendingBuddy && !cloudIn()) h += '<div class="duo-imp"><p>Te invitaron a ser watch buddy. Entrá con tu cuenta de Google para aceptar.</p>' + cloudCardHTML() + '</div>';
   if (imp) {
     var ex = COMP.some(function (x) { return x.id === imp.id; });
     h += '<div class="duo-imp"><p><b>' + esc(imp.name) + '</b> te mandó su gusto: ' + nf.format(Object.keys(imp.seen).length) + ' vistas, ' + nf.format(Object.keys(imp.stars).length) + ' con estrellas.' + (ex ? ' Reemplaza al que ya tenías guardado con ese nombre.' : '') + '</p>' +
       '<div class="fest-row"><button class="btn btn-accent" type="button" data-duo="save">Guardar y ver con ' + esc(imp.name) + '</button><button class="btn btn-ghost" type="button" data-duo="discard">Ahora no</button></div></div>';
   }
   h += '<section class="duo-sec"><h3 class="fest-h">¿Con quién estás?</h3><div class="g-chips"><button class="g-chip" type="button" data-duo="with" data-v="" aria-pressed="' + !c + '">Solo</button>' +
-    COMP.map(function (x) { return '<button class="g-chip" type="button" data-duo="with" data-v="' + esc(x.id) + '" aria-pressed="' + (!!c && c.id === x.id) + '">Con ' + esc(x.name) + '</button>'; }).join('') + '</div>' +
-    (COMP.length ? '' : '<p class="hint">Todavía no cargaste a nadie. Más abajo podés sumar a alguien.</p>') + '</section>';
+    allComps().map(function (x) { return '<button class="g-chip" type="button" data-duo="with" data-v="' + esc(x.id) + '" aria-pressed="' + (!!c && c.id === x.id) + '"' + (x.pending ? ' disabled title="Todavía no aceptó"' : '') + '>Con ' + esc(x.name) + '</button>'; }).join('') + '</div>' +
+    (allComps().length ? '' : '<p class="hint">Todavía no hay nadie. Más abajo podés sumar a alguien.</p>') + '</section>';
   if (c) h += duoSummary(c);
-  if (COMP.length) h += '<section class="duo-sec"><h3 class="fest-h">Gente guardada</h3><ul class="duo-people">' + COMP.map(function (x) {
+  h += buddiesHTML();
+  if (COMP.length) h += '<section class="duo-sec"><h3 class="fest-h">Gente guardada en este dispositivo</h3><ul class="duo-people">' + COMP.map(function (x) {
     var n = Object.keys(x.seen).length, d = x.at ? new Date(x.at).toLocaleDateString('es-AR') : '';
     return '<li><span><b>' + esc(x.name) + '</b><small>' + nf.format(n) + ' vistas · ' + (x.src === 'link' ? 'por link del ' + d : 'marcado a mano') + '</small></span>' +
       '<button class="btn btn-ghost" type="button" data-duo="del" data-v="' + esc(x.id) + '">' + (state.duoDel === x.id ? 'Confirmar' : 'Borrar') + '</button></li>';
@@ -1901,6 +1938,13 @@ function renderDuo() {
   $('#duoBody').innerHTML = h;
 }
 async function duoAct(act, v, btn) {
+  if (act === 'binvite') { await buddyInvite(btn); return; }
+  if (act === 'baccept') { await buddyAccept(); return; }
+  if (act === 'bdecline') { state.buddyOffer = null; renderDuo(); return; }
+  if (act === 'bremove') {
+    if (state.duoDel !== v) { state.duoDel = v; renderDuo(); setTimeout(function () { if (state.duoDel === v) { state.duoDel = null; if ($('#dlgDuo').open) renderDuo(); } }, 4000); return; }
+    state.duoDel = null; await buddyRemove(v).catch(function () { toast('No pude quitarlo.'); }); return;
+  }
   if (act === 'with') { setDuo(v || null); renderDuo(); return; }
   if (act === 'save') { var c = state.duoImport; state.duoImport = null; if (c) { upsertComp(c); setDuo(c.id); toast('Listo, ahora están de a dos con ' + c.name + '.'); } renderDuo(); return; }
   if (act === 'discard') { state.duoImport = null; renderDuo(); return; }
@@ -2054,7 +2098,8 @@ function renderProfile() {
   var h = '<header class="pf-head"><span class="pf-avatar" aria-hidden="true">' + esc(initial) + '</span><div class="pf-id">' +
     '<form class="pf-name" id="pfNameForm" autocomplete="off"><label class="sr" for="pfName">Tu nombre</label><input class="pf-name-inp" id="pfName" maxlength="30" placeholder="Tu nombre" value="' + esc(name) + '"></form>' +
     '<p class="pf-sub">' + nf.format(st.total) + (st.total === 1 ? ' vista' : ' vistas') + ' · ' + nf.format(st.rated) + ' con estrellas · ' + nf.format(lists.length) + (lists.length === 1 ? ' lista' : ' listas') + '</p></div>' +
-    '<div class="pf-actions"><button class="btn" type="button" data-pf="duo">' + DUO_ICON + 'De a dos</button><button class="btn" type="button" data-pf="settings">Ajustes</button></div></header>';
+    '<div class="pf-actions"><button class="btn" type="button" data-pf="duo">' + DUO_ICON + 'De a dos</button><button class="btn" type="button" data-pf="settings">Ajustes</button></div></header>' +
+    '<div class="pf-cloud">' + cloudCardHTML() + '</div>';
   if (!st.total) {
     h += '<div class="pf-empty"><p>Todavía no marcaste nada como visto. Cuando lo hagas (o les pongas estrellas), acá aparece tu resumen: géneros, etiquetas y épocas favoritas, tu joya escondida y más.</p></div>';
   } else {
@@ -2094,9 +2139,17 @@ function renderProfile() {
   var pill = function (l) { return '<button class="lpill' + (isRadio(l) ? ' is-fest' : '') + '" type="button" data-pf="list" data-v="' + esc(l.id) + '">' + (isRadio(l) ? ICON.ticket : '') + esc(l.name) + ' <span class="n">' + nf.format(listKeys(l).length) + '</span></button>'; };
   h += '<section class="pf-sec"><h3 class="fest-h">Tus listas</h3><div class="fest-mine">' + plain.map(pill).join('') + '</div>' +
     (fests.length ? '<h3 class="fest-h pf-h2">Tus festivales</h3><div class="fest-mine">' + fests.map(pill).join('') + '</div>' : '') + '</section>';
-  h += '<section class="pf-sec"><h3 class="fest-h">Watch buddies</h3>' + (COMP.length ? '<div class="fest-mine">' + COMP.map(function (c) {
+  h += '<section class="pf-sec"><h3 class="fest-h">Watch buddies</h3>' + (allComps().length ? '<div class="fest-mine">' + allComps().map(function (c) {
     return '<button class="lpill" type="button" data-pf="buddy" data-v="' + esc(c.id) + '">' + DUO_ICON + esc(c.name) + ' <span class="n">' + nf.format(Object.keys(c.seen).length) + '</span></button>';
   }).join('') + '</div>' : '<p class="hint">Todavía no cargaste a nadie. Desde De a dos podés compartir tu gusto o sumar el de otra persona.</p>') + '</section>';
+  if (CLOUD.admin && cloudIn()) {
+    var inv = CLOUD.invites;
+    h += '<section class="pf-sec"><h3 class="fest-h">Invitados</h3><p class="hint">Solo estos mails pueden entrar con Google. Les llegan configuradas tus claves de TMDB y OMDb, y los puntajes de OMDb se comparten entre todos.</p>' +
+      '<form class="duo-new inv-form" id="invForm" autocomplete="off"><label class="sr" for="invEmail">Mail</label><input class="inp" id="invEmail" type="email" placeholder="mail@gmail.com" required><label class="sr" for="invName">Nombre</label><input class="inp" id="invName" maxlength="40" placeholder="Nombre"><button class="btn btn-accent" type="submit">Invitar</button></form>' +
+      (inv === null ? '<p class="hint">Cargando…</p>' : inv.length ? '<ul class="duo-people">' + inv.map(function (x) {
+        return '<li><span><b>' + esc(x.name || x.email) + '</b><small>' + esc(x.email) + '</small></span><span class="inv-acts"><button class="btn" type="button" data-pf="invshare" data-v="' + esc(x.email) + '">Mandar link</button><button class="btn btn-ghost" type="button" data-pf="invdel" data-v="' + esc(x.email) + '">' + (state.invDel === x.email ? 'Confirmar' : 'Quitar') + '</button></span></li>';
+      }).join('') + '</ul>' : '<p class="hint">Todavía no invitaste a nadie.</p>') + '</section>';
+  }
   el.innerHTML = h;
   $$('.pf-fill', el).forEach(function (f) { f.style.width = f.dataset.w + '%'; });
 }
@@ -2108,6 +2161,11 @@ function profileAct(act, v) {
   if (act === 'open') { openDetail(itemFor(v)); return; }
   if (act === 'buddy') { setDuo(v); openDuo(); return; }
   if (act === 'ideal') { var b = $('#profile [data-pf="ideal"]'); startSectionFestival(v, b); return; }
+  if (act === 'invshare') { var x = (CLOUD.invites || []).filter(function (i) { return i.email === v; })[0]; shareLink(appUrl(), 'Te invité a WatchListo' + (x && x.name ? ', ' + x.name : '') + '. Instalala desde este link y entrá con tu cuenta de Google (' + v + '): te llega todo configurado.', 'Link copiado. Mandáselo y que entre con ' + v + '.'); return; }
+  if (act === 'invdel') {
+    if (state.invDel !== v) { state.invDel = v; renderProfile(); setTimeout(function () { if (state.invDel === v) { state.invDel = null; renderProfile(); } }, 4000); return; }
+    state.invDel = null; inviteRemove(v).catch(function () { toast('No pude quitar la invitación.'); }); return;
+  }
 }
 
 /* ---------- radios ---------- */
@@ -2115,13 +2173,17 @@ function isRadio(l) { return !!l && Object.keys(l.seeds || {}).length > 0; }
 function radioContext() { if (state.special || state.ui.view !== 'lists') return null; var l = getList(state.ui.list); return isRadio(l) ? l : null; }
 async function radioFill(l, n) {
   var seeds = Object.keys(l.seeds).sort(function (a, b) { return l.seeds[a] - l.seeds[b]; }).map(resolveItem).filter(Boolean).slice(-8);
-  var recs = await recommend(seeds), R = rumboOf(l);
-  var t = now(), added = 0;
-  for (var i = 0; i < recs.length && added < n; i++) {
-    var it = recs[i].it, k = it.k;
-    if (isIn(l, k) || l.nos[k] || (l.seeds[k] && !duoComp()) || seenNow(k) || lowNow(k) || (l.rms[k] || 0) > 0 || rumboOut(R, it)) continue;
-    l.adds[k] = t - added; state.user.items[k] = snapshot(it); added++;
-  }
+  /* lista compartida de a dos: se programa con el gusto de los dos y su regla de vistas */
+  var sc = sharedCompanion(l), prevDuo = state.duo, added = 0;
+  if (sc) state.duo = sc.id;
+  try {
+    var recs = await recommend(seeds), R = rumboOf(l), t = now();
+    for (var i = 0; i < recs.length && added < n; i++) {
+      var it = recs[i].it, k = it.k;
+      if (isIn(l, k) || l.nos[k] || (l.seeds[k] && !duoComp()) || seenNow(k) || lowNow(k) || (l.rms[k] || 0) > 0 || rumboOut(R, it)) continue;
+      l.adds[k] = t - added; state.user.items[k] = snapshot(it); added++;
+    }
+  } finally { if (sc) state.duo = prevDuo; }
   touchUser();
   return added;
 }
@@ -2268,8 +2330,8 @@ function renderGuide() {
     var conf = tasteProfile().conf, dc = duoComp();
     say = dc ? 'Buenas, pasen, que quedan butacas. ¿Hoy es noche de película o de serie?' : 'Buenas. Pasá, que quedan butacas. ¿Hoy es noche de película o de serie?';
     main = '<div class="g-row g-with"><span class="rlabel">¿Con quién?</span><div class="g-chips"><button class="g-chip" type="button" data-g="with" data-v="" aria-pressed="' + !dc + '">Solo</button>' +
-      COMP.map(function (c) { return '<button class="g-chip" type="button" data-g="with" data-v="' + esc(c.id) + '" aria-pressed="' + (!!dc && dc.id === c.id) + '">Con ' + esc(c.name) + '</button>'; }).join('') +
-      '<button class="g-chip" type="button" data-g="duo">' + (COMP.length ? '+ Otra persona' : '+ Con alguien') + '</button></div></div>' +
+      allComps().filter(function (c) { return !c.pending; }).map(function (c) { return '<button class="g-chip" type="button" data-g="with" data-v="' + esc(c.id) + '" aria-pressed="' + (!!dc && dc.id === c.id) + '">Con ' + esc(c.name) + '</button>'; }).join('') +
+      '<button class="g-chip" type="button" data-g="duo">' + (allComps().length ? '+ Otra persona' : '+ Con alguien') + '</button></div></div>' +
       '<div class="g-opts g-two">' + guideOpt('type', 'movie', 'Película', 'una sola sentada') + guideOpt('type', 'tv', 'Serie', 'para engancharse') + '</div>' +
       '<div class="g-alts">' + (conf >= 0.4 ? '<button class="g-alt" type="button" data-g="blind">' + (dc ? 'A ciegas, según lo que nos gustó' : 'A ciegas, según lo que me gustó') + '</button>' : '') +
       '<button class="g-alt" type="button" data-g="random">Una al azar de lo que estoy viendo</button></div>' +
@@ -2553,6 +2615,433 @@ function navInit() {
     NAV.idx = st.wl; navApply(target);
   });
 }
+
+/* ---------- cuentas: login con Google y datos en la nube (Firebase) ----------
+   Opcional y por invitación. Sin sesión la app funciona igual que siempre, todo en el
+   dispositivo. Con sesión: tus listas, vistas y estrellas viven en tu cuenta (se mezclan
+   con las del dispositivo sin pisar nada), las claves de los catálogos llegan solas, tus
+   watch buddies ven tu gusto, las listas compartidas se editan entre varios y los
+   puntajes de OMDb quedan guardados para todos. Quién puede leer y escribir qué lo deciden
+   las reglas de Firestore (firestore.rules en el repo); esta configuración web no es secreta. */
+var FB_CONFIG = {
+  apiKey: 'AIzaSyCTPqv7a9eQepqnqDhhoRiB0NuvSyc22kg',
+  authDomain: 'watchlisto-de547.firebaseapp.com',
+  projectId: 'watchlisto-de547',
+  storageBucket: 'watchlisto-de547.firebasestorage.app',
+  messagingSenderId: '329902641670',
+  appId: '1:329902641670:web:5395493de69053a2016987'
+};
+var FB_BASE = 'https://www.gstatic.com/firebasejs/12.11.0/';
+var ADMIN_EMAIL = 'pfiguerero@gmail.com';
+var CLOUD = { api: null, loading: null, authUnsub: null, user: null, status: 'off', admin: false, unsubs: [], shared: new Map(), buddies: [], buddyUids: [], invites: null, modelKey: '', tasteKey: '', pendingBuddy: null };
+function cloudIn() { return CLOUD.status === 'in' && !!CLOUD.user; }
+function cloudUid() { return CLOUD.user ? CLOUD.user.uid : ''; }
+function randomCode(n) { var a = new Uint8Array(n), abc = 'abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789', s = ''; crypto.getRandomValues(a); for (var i = 0; i < n; i++) s += abc.charAt(a[i] % abc.length); return s; }
+function appUrl() { return location.origin + location.pathname; }
+function myDisplayName() { return (state.settings.myName || (CLOUD.user && CLOUD.user.name) || 'Alguien').slice(0, 30); }
+function isDenied(e) { return !!e && (e.code === 'permission-denied' || /permission/i.test(String(e.code || ''))); }
+function cloudErrText(e) {
+  var c = (e && e.code) || '';
+  if (c === 'auth/popup-closed-by-user' || c === 'auth/cancelled-popup-request') return 'Cerraste la ventana de Google antes de terminar.';
+  if (c === 'auth/network-request-failed' || c === 'unavailable') return 'Sin conexión. Probá de nuevo en un rato.';
+  if (c === 'auth/unauthorized-domain') return 'Falta autorizar este dominio en Firebase (Authentication → Dominios autorizados).';
+  if (c === 'auth/operation-not-allowed') return 'El acceso con Google no está habilitado en Firebase.';
+  return 'No pude conectar con tu cuenta' + (c ? ' (' + c + ')' : '') + '.';
+}
+
+/* adaptador: Firebase de verdad o, solo en localhost para las pruebas, uno simulado */
+async function loadCloudApi() {
+  if (CLOUD.api) return CLOUD.api;
+  if (!CLOUD.loading) CLOUD.loading = (async function () {
+    if (window.__fbMock && (location.hostname === 'localhost' || location.hostname === '127.0.0.1')) return (CLOUD.api = window.__fbMock);
+    var mods = await Promise.all([import(FB_BASE + 'firebase-app.js'), import(FB_BASE + 'firebase-auth.js'), import(FB_BASE + 'firebase-firestore.js')]);
+    var A = mods[0], Au = mods[1], F = mods[2];
+    var app = A.initializeApp(FB_CONFIG);
+    var auth = Au.initializeAuth(app, { persistence: [Au.indexedDBLocalPersistence, Au.browserLocalPersistence], popupRedirectResolver: Au.browserPopupRedirectResolver });
+    var db = F.initializeFirestore(app, {});
+    var ref = function (p) { return F.doc(db, p); };
+    var val = function (v) { return v && v.__op === 'union' ? F.arrayUnion(v.v) : v && v.__op === 'remove' ? F.arrayRemove(v.v) : v === undefined ? F.deleteField() : v; };
+    var obj = function (o) { var out = {}; Object.keys(o).forEach(function (k) { out[k] = val(o[k]); }); return out; };
+    var docs = function (qs) { return qs.docs.map(function (d) { return { id: d.id, data: d.data() }; }); };
+    CLOUD.api = {
+      signIn: async function () {
+        var p = new Au.GoogleAuthProvider(); p.setCustomParameters({ prompt: 'select_account' });
+        try { await Au.signInWithPopup(auth, p); }
+        catch (e) { if (e && (e.code === 'auth/popup-blocked' || e.code === 'auth/operation-not-supported-in-this-environment')) await Au.signInWithRedirect(auth, p); else throw e; }
+      },
+      redirectResult: function () { return Au.getRedirectResult(auth).catch(function () { return null; }); },
+      signOut: function () { return Au.signOut(auth); },
+      onAuth: function (cb) { return Au.onAuthStateChanged(auth, function (u) { cb(u ? { uid: u.uid, email: String(u.email || '').toLowerCase(), name: u.displayName || '', photo: u.photoURL || '' } : null); }); },
+      get: async function (p) { var s = await F.getDoc(ref(p)); return s.exists() ? s.data() : null; },
+      list: async function (c) { return docs(await F.getDocs(F.collection(db, c))); },
+      set: function (p, data, merge) { return F.setDoc(ref(p), obj(data), merge ? { merge: true } : {}); },
+      update: function (p, pairs) { var args = [ref(p)]; pairs.forEach(function (x) { args.push(new F.FieldPath(...x[0]), val(x[1])); }); return F.updateDoc.apply(null, args); },
+      del: function (p) { return F.deleteDoc(ref(p)); },
+      watch: function (p, cb, err) { return F.onSnapshot(ref(p), function (s) { cb(s.exists() ? s.data() : null); }, err); },
+      watchWhere: function (c, field, op, v, cb, err) { return F.onSnapshot(F.query(F.collection(db, c), F.where(field, op, v)), function (qs) { cb(docs(qs)); }, err); },
+      tx: function (p, fn) { return F.runTransaction(db, async function (t) { var s = await t.get(ref(p)); var next = fn(s.exists() ? s.data() : null); if (next) t.set(ref(p), next); return next; }); },
+      union: function (v) { return { __op: 'union', v: v }; },
+      remove: function (v) { return { __op: 'remove', v: v }; }
+    };
+    return CLOUD.api;
+  })().catch(function (e) { CLOUD.loading = null; throw e; });
+  return CLOUD.loading;
+}
+async function cloudStart() {
+  var api = await loadCloudApi();
+  if (CLOUD.authUnsub) return api;
+  if (api.redirectResult) api.redirectResult();
+  CLOUD.authUnsub = api.onAuth(function (u) { onCloudUser(u).catch(function (e) { CLOUD.lastError = String((e && (e.code || e.message)) || e); if (e && e.fatal) fatal(e); else { CLOUD.status = 'error'; renderCloudUI(); } }); });
+  return api;
+}
+function cloudBoot() { if (LS.get('cloudOn', false)) { CLOUD.status = 'checking'; cloudStart().catch(function () { CLOUD.status = 'error'; renderCloudUI(); }); } }
+async function cloudSignIn() {
+  CLOUD.status = 'checking'; renderCloudUI();
+  try { var api = await cloudStart(); await api.signIn(); }
+  catch (e) { CLOUD.status = CLOUD.user ? CLOUD.status : 'out'; renderCloudUI(); toast(cloudErrText(e)); }
+}
+async function cloudSignOut() {
+  if (!CLOUD.api) return;
+  await CLOUD.api.signOut();
+  LS.del('cloudOn');
+  toast('Saliste de tu cuenta. Lo de este dispositivo queda acá.');
+}
+function cloudStopWatches() { CLOUD.unsubs.forEach(function (u) { try { u(); } catch (e) {} }); CLOUD.unsubs = []; }
+async function onCloudUser(u) {
+  cloudStopWatches();
+  CLOUD.user = u; CLOUD.modelKey = ''; CLOUD.tasteKey = '';
+  if (!u) { CLOUD.status = 'out'; CLOUD.shared.clear(); CLOUD.buddies = []; CLOUD.buddyUids = []; CLOUD.invites = null; renderCloudUI(); renderDuoBtn(); refresh(true); return; }
+  LS.set('cloudOn', true);
+  CLOUD.status = 'checking'; CLOUD.admin = u.email === ADMIN_EMAIL; renderCloudUI();
+  var keys;
+  try { keys = await CLOUD.api.get('config/keys'); }
+  catch (e) { CLOUD.status = isDenied(e) ? 'denied' : 'error'; renderCloudUI(); return; }
+  CLOUD.status = 'in';
+  await cloudApplyKeys(keys);
+  await cloudSyncModel();
+  CLOUD.api.set('users/' + u.uid, { name: myDisplayName(), photo: u.photo || '', at: Date.now() }, true).catch(function () {});
+  cloudWatch();
+  if (CLOUD.admin) cloudLoadInvites();
+  renderCloudUI(); refresh(true);
+  if (CLOUD.pendingBuddy) buddyOpenPending();
+}
+/* claves de catálogo: el administrador las publica, los invitados las reciben sin tocar nada */
+async function cloudApplyKeys(keys) {
+  var s = state.settings, changed = false, ok = function (v) { return typeof v === 'string' && v.length <= 400 && TOKEN_CHARS.test(v); };
+  if (keys) {
+    if (!s.tmdbKey && ok(keys.tmdb) && keys.tmdb) { s.tmdbKey = keys.tmdb; changed = true; }
+    if (!s.omdbKey && ok(keys.omdb) && keys.omdb) { s.omdbKey = keys.omdb; changed = true; }
+  }
+  if (CLOUD.admin && s.tmdbKey && (!keys || keys.tmdb !== s.tmdbKey || (keys.omdb || '') !== (s.omdbKey || ''))) {
+    await CLOUD.api.set('config/keys', { tmdb: s.tmdbKey, omdb: s.omdbKey || '', at: Date.now() }).catch(function () {});
+  }
+  if (changed) { saveSettings(); state.omdbStop = null; if (document.body.classList.contains('onboarding')) start(); }
+}
+/* tus datos: el mismo modelo que se sincroniza entre dispositivos, mezclado en una transacción */
+var cloudPushSoon = debounce(function () { cloudSyncModel().catch(function () {}); }, 2500);
+async function cloudSyncModel() {
+  if (!cloudIn()) return;
+  var path = 'users/' + cloudUid() + '/private/model', merged = null;
+  await CLOUD.api.tx(path, function (cur) {
+    var remote = null;
+    try { remote = cur && typeof cur.json === 'string' ? normUser(JSON.parse(cur.json)) : null; } catch (e) { remote = null; }
+    merged = remote ? mergeUsers(state.user, remote) : state.user;
+    if (remote && contentKey(remote) === contentKey(merged)) return null;
+    return { json: JSON.stringify(merged), at: Date.now() };
+  });
+  if (merged && contentKey(merged) !== contentKey(state.user)) { state.user = merged; LS.set('user', state.user); refresh(true); }
+  CLOUD.modelKey = contentKey(state.user);
+  await cloudPushTaste();
+}
+function onCloudModel(d) {
+  if (!d || typeof d.json !== 'string') return;
+  var remote; try { remote = normUser(JSON.parse(d.json)); } catch (e) { return; }
+  var merged = mergeUsers(state.user, remote), key = contentKey(merged);
+  if (key !== contentKey(state.user)) { state.user = merged; LS.set('user', state.user); refreshSoon(); }
+  if (key !== contentKey(remote)) cloudPushSoon();
+}
+/* lo que ven tus watch buddies: vistas, estrellas y lo mínimo de cada título */
+function tastePayload() {
+  var seen = {}, stars = {}, items = {};
+  mySignals().forEach(function (s) { seen[s.k] = isSeen(s.k) ? 1 : 0; if (s.n) stars[s.k] = s.n; var it = s.it; items[s.k] = [String(it.t || '').slice(0, 80), it.y || 0, (it.g || []).slice(0, 4), it.l || '', safePath(it.p) || '']; });
+  return { seen: seen, stars: stars, items: items };
+}
+async function cloudPushTaste() {
+  if (!cloudIn()) return;
+  var json = JSON.stringify(tastePayload());
+  if (json === CLOUD.tasteKey) return;
+  await CLOUD.api.set('users/' + cloudUid() + '/private/taste', { json: json, name: myDisplayName(), at: Date.now() });
+  CLOUD.tasteKey = json;
+}
+function cloudWatch() {
+  var api = CLOUD.api, uid = cloudUid(), soft = function () {};
+  CLOUD.unsubs.push(api.watch('users/' + uid + '/private/model', onCloudModel, soft));
+  CLOUD.unsubs.push(api.watch('users/' + uid, function (d) { var b = d && Array.isArray(d.buddies) ? d.buddies.filter(function (x) { return typeof x === 'string' && x !== uid; }) : []; if (b.join() !== CLOUD.buddyUids.join()) { CLOUD.buddyUids = b; loadBuddies(); } }, soft));
+  CLOUD.unsubs.push(api.watchWhere('lists', 'members', 'array-contains', uid, onSharedLists, soft));
+  CLOUD.unsubs.push(api.watchWhere('buddyInvites', 'from', '==', uid, onMyBuddyInvites, soft));
+}
+
+/* --- watch buddies: invitación por link, cada uno decide quién ve su gusto --- */
+async function loadBuddies() {
+  var out = [];
+  await Promise.all(CLOUD.buddyUids.map(async function (b) {
+    var prof = null, taste = null;
+    try { prof = await CLOUD.api.get('users/' + b); } catch (e) {}
+    try { taste = await CLOUD.api.get('users/' + b + '/private/taste'); } catch (e) {}
+    var c = { id: 'u:' + b, uid: b, name: String((prof && prof.name) || (taste && taste.name) || 'Buddy').slice(0, 30), photo: prof && prof.photo || '', at: (taste && taste.at) || 0, src: 'cloud', pending: !taste, seen: {}, stars: {}, items: {} };
+    if (taste && typeof taste.json === 'string') {
+      try {
+        var t = JSON.parse(taste.json);
+        Object.keys(t.seen || {}).forEach(function (k) { if (validKey(k)) c.seen[k] = c.at || 1; });
+        Object.keys(t.stars || {}).forEach(function (k) { var n = Math.round(+t.stars[k]); if (validKey(k) && n >= 1 && n <= 5) c.stars[k] = n; });
+        Object.keys(t.items || {}).forEach(function (k) { var r = t.items[k]; if (validKey(k) && Array.isArray(r)) { var s = cleanSnap({ t: r[0], y: r[1], g: Array.isArray(r[2]) ? r[2] : [], l: r[3], p: r[4] }, k); if (s) c.items[k] = s; } });
+      } catch (e) {}
+    }
+    out.push(c);
+  }));
+  out.sort(function (a, b) { return a.name.localeCompare(b.name); });
+  CLOUD.buddies = out;
+  /* si la otra persona todavía no confirmó, se reintenta un rato */
+  clearTimeout(CLOUD.retryT);
+  if (out.some(function (c) { return c.pending; }) && (CLOUD.retries = (CLOUD.retries || 0) + 1) <= 12) CLOUD.retryT = setTimeout(function () { if (cloudIn()) loadBuddies(); }, 15000);
+  else if (!out.some(function (c) { return c.pending; })) CLOUD.retries = 0;
+  var ds = LS.get('duo', null);
+  if (!state.duo && ds && +ds.until > Date.now() && out.some(function (c) { return c.id === ds.id; })) state.duo = ds.id;
+  renderDuoBtn();
+  if ($('#dlgDuo').open) renderDuo();
+  if (state.ui.view === 'profile') renderProfile();
+}
+async function buddyInvite(btn) {
+  if (!cloudIn()) { toast('Primero entrá con tu cuenta de Google.'); return; }
+  if (btn) btn.disabled = true;
+  try {
+    var code = randomCode(20);
+    await CLOUD.api.set('buddyInvites/' + code, { from: cloudUid(), fromName: myDisplayName(), at: Date.now() });
+    await shareLink(appUrl() + '#buddy=' + code, myDisplayName() + ' te invita a ser su watch buddy en WatchListo', 'Link copiado. Cuando lo acepte, aparece en tus buddies.');
+  } catch (e) { toast(isDenied(e) ? 'Tu cuenta no tiene permiso para invitar.' : 'No pude crear la invitación.'); }
+  finally { if (btn) btn.disabled = false; }
+}
+function readBuddyHash() {
+  var h = location.hash || ''; if (h.indexOf('#buddy=') !== 0) return;
+  try { history.replaceState(history.state, '', location.pathname + location.search); } catch (e) {}
+  var code = h.slice(7); if (!/^[A-Za-z0-9]{16,40}$/.test(code)) return;
+  CLOUD.pendingBuddy = code; LS.set('pendingBuddy', code);
+}
+async function buddyOpenPending() {
+  var code = CLOUD.pendingBuddy || LS.get('pendingBuddy', null); if (!code) return;
+  if (!cloudIn()) { CLOUD.pendingBuddy = code; openDuo(); return; }
+  var inv = null;
+  try { inv = await CLOUD.api.get('buddyInvites/' + code); } catch (e) {}
+  CLOUD.pendingBuddy = null; LS.del('pendingBuddy');
+  if (!inv || typeof inv.from !== 'string') { toast('Esa invitación ya no existe o ya se usó.'); return; }
+  if (inv.from === cloudUid()) { toast('Es tu propia invitación: mandásela a la otra persona.'); return; }
+  state.buddyOffer = { code: code, from: inv.from, name: String(inv.fromName || 'Alguien').slice(0, 30) };
+  openDuo();
+}
+async function buddyAccept() {
+  var o = state.buddyOffer; if (!o || !cloudIn()) return;
+  state.buddyOffer = null;
+  try {
+    await CLOUD.api.set('users/' + cloudUid(), { buddies: CLOUD.api.union(o.from), name: myDisplayName(), at: Date.now() }, true);
+    await CLOUD.api.update('buddyInvites/' + o.code, [[['acceptedBy'], cloudUid()], [['acceptedName'], myDisplayName()]]);
+    toast('Listo, ' + o.name + ' es tu watch buddy.');
+  } catch (e) { toast('No pude aceptar la invitación.'); }
+  renderDuo();
+}
+function onMyBuddyInvites(docs) {
+  CLOUD.myInvites = docs.length;
+  docs.forEach(function (d) {
+    var a = d.data && d.data.acceptedBy;
+    if (typeof a !== 'string' || !a || a === cloudUid()) return;
+    CLOUD.api.set('users/' + cloudUid(), { buddies: CLOUD.api.union(a) }, true)
+      .then(function () { return CLOUD.api.del('buddyInvites/' + d.id); })
+      .then(function () { toast((d.data.acceptedName || 'Alguien') + ' aceptó ser tu watch buddy.'); }, function () {});
+  });
+}
+async function buddyRemove(uid) {
+  if (!cloudIn()) return;
+  await CLOUD.api.set('users/' + cloudUid(), { buddies: CLOUD.api.remove(uid) }, true);
+  if (state.duo === 'u:' + uid) setDuo(null);
+}
+async function shareLink(url, text, copiedMsg) {
+  if (navigator.share) { try { await navigator.share({ title: 'WatchListo', text: text, url: url }); return; } catch (e) { if (e && e.name === 'AbortError') return; } }
+  try { await navigator.clipboard.writeText(url); toast(copiedMsg || 'Link copiado.'); } catch (e) { window.prompt('Copiá este link:', url); }
+}
+
+/* --- listas compartidas: un documento por lista, con sus miembros; cada cambio es un campo,
+   así dos personas pueden sumar y sacar a la vez sin pisarse --- */
+var SHARED_MAPS = ['adds', 'rms', 'seeds', 'nos'];
+function normShared(id, d) {
+  if (!d || typeof d !== 'object' || !Array.isArray(d.members) || !/^[A-Za-z0-9_-]{1,40}$/.test(id)) return null;
+  var l = blankList(id, String(d.name || 'Lista').slice(0, 40), +d.nameAt || 0);
+  l.createdAt = +d.createdAt || 0; l.deletedAt = +d.deletedAt || 0;
+  SHARED_MAPS.forEach(function (f) { l[f] = tsMap(d[f]); });
+  l.tags = tagMap(d.tags);
+  l.shared = true; l.owner = String(d.owner || '');
+  l.members = d.members.filter(function (x) { return typeof x === 'string'; }).slice(0, 20);
+  l.memberNames = {}; if (d.memberNames && typeof d.memberNames === 'object') l.members.forEach(function (m) { if (typeof d.memberNames[m] === 'string') l.memberNames[m] = d.memberNames[m].slice(0, 30); });
+  l.items = {}; if (d.items && typeof d.items === 'object') Object.keys(d.items).forEach(function (k) { if (validKey(k)) { var s = cleanSnap(d.items[k], k); if (s) l.items[k] = s; } });
+  return l;
+}
+function cloneShared(l) { return JSON.parse(JSON.stringify({ name: l.name, nameAt: l.nameAt, deletedAt: l.deletedAt, adds: l.adds, rms: l.rms, seeds: l.seeds, nos: l.nos, tags: l.tags || {}, items: l.items || {} })); }
+function onSharedLists(docs) {
+  var seen = new Set();
+  docs.forEach(function (d) {
+    var srv = normShared(d.id, d.data); if (!srv) return;
+    seen.add(d.id);
+    var loc = CLOUD.shared.get(d.id);
+    if (!loc) { loc = srv; CLOUD.shared.set(d.id, loc); }
+    else {
+      if (srv.nameAt > loc.nameAt) { loc.name = srv.name; loc.nameAt = srv.nameAt; }
+      loc.deletedAt = Math.max(loc.deletedAt || 0, srv.deletedAt || 0);
+      SHARED_MAPS.forEach(function (f) { maxInto(loc[f], srv[f]); });
+      Object.keys(srv.tags).forEach(function (k) { var a = srv.tags[k], c = loc.tags[k]; if (!c || a.at > c.at) loc.tags[k] = a; });
+      Object.keys(srv.items).forEach(function (k) { loc.items[k] = loc.items[k] || srv.items[k]; });
+      loc.members = srv.members; loc.memberNames = srv.memberNames; loc.owner = srv.owner;
+    }
+    loc._synced = cloneShared(srv);
+  });
+  Array.from(CLOUD.shared.keys()).forEach(function (id) { if (!seen.has(id)) CLOUD.shared.delete(id); });
+  pushShared();
+  refreshSoon();
+}
+function sharedLists() { return Array.from(CLOUD.shared.values()); }
+var pushSharedSoon = debounce(function () { pushShared(); }, 700);
+function pushShared() {
+  if (!cloudIn()) return;
+  CLOUD.shared.forEach(function (l, id) {
+    var s = l._synced; if (!s) return;
+    var ups = [];
+    SHARED_MAPS.forEach(function (f) { var a = l[f] || {}, b = s[f] || {}; Object.keys(a).forEach(function (k) { if (a[k] !== b[k]) ups.push([[f, k], a[k]]); }); });
+    Object.keys(l.tags || {}).forEach(function (k) { var a = l.tags[k], b = (s.tags || {})[k]; if (!b || a.at !== b.at || a.v !== b.v) ups.push([['tags', k], { v: a.v, at: a.at }]); });
+    if (l.nameAt !== s.nameAt) { ups.push([['name'], l.name]); ups.push([['nameAt'], l.nameAt]); }
+    if ((l.deletedAt || 0) !== (s.deletedAt || 0)) ups.push([['deletedAt'], l.deletedAt || 0]);
+    Object.keys(l.adds).concat(Object.keys(l.seeds)).forEach(function (k) {
+      if ((s.items || {})[k]) return;
+      var snap = state.user.items[k] || l.items[k] || (catIndex(typeOfKey(k)) || new Map()).get(k);
+      if (snap) { snap = cleanSnap(snap, k); l.items[k] = snap; ups.push([['items', k], snap]); }
+    });
+    if (!ups.length) return;
+    var prev = l._synced; l._synced = cloneShared(l);
+    CLOUD.api.update('lists/' + id, ups.slice(0, 400)).catch(function (e) { l._synced = prev; toast(isDenied(e) ? 'Ya no tenés acceso a «' + l.name + '».' : 'No pude guardar «' + l.name + '». Reintento cuando vuelva la conexión.'); });
+  });
+}
+function buddyName(uid) { var b = CLOUD.buddies.filter(function (c) { return c.uid === uid; })[0]; return b ? b.name : 'Buddy'; }
+async function shareList(l, uids) {
+  if (!cloudIn() || !uids.length) return;
+  var me = cloudUid(), id = 's' + randomCode(16), t = now(), names = {};
+  names[me] = myDisplayName(); uids.forEach(function (u) { names[u] = buddyName(u); });
+  var items = {};
+  Object.keys(l.adds).concat(Object.keys(l.seeds)).forEach(function (k) { var s = state.user.items[k] || resolveItem(k); if (s) { s = cleanSnap(s, k); if (s) items[k] = s; } });
+  var doc = { name: l.name, nameAt: t, createdAt: t, deletedAt: 0, owner: me, members: [me].concat(uids), memberNames: names, adds: l.adds, rms: l.rms, seeds: l.seeds || {}, nos: l.nos || {}, tags: l.tags || {}, items: items };
+  await CLOUD.api.set('lists/' + id, JSON.parse(JSON.stringify(doc)));
+  var sl = normShared(id, doc); sl._synced = cloneShared(sl); CLOUD.shared.set(id, sl);
+  if (l.id !== 'watchlist' && !l.shared) deleteList(l);
+  state.ui.list = id; state.listEdit = null; refresh();
+  toast('Listo, «' + l.name + '» ahora es compartida.');
+}
+async function sharedAddMembers(l, uids) {
+  var ups = [[['members'], CLOUD.api.union(uids[0])]];
+  uids.forEach(function (u) { ups.push([['memberNames', u], buddyName(u)]); });
+  await CLOUD.api.update('lists/' + l.id, ups);
+  for (var i = 1; i < uids.length; i++) await CLOUD.api.update('lists/' + l.id, [[['members'], CLOUD.api.union(uids[i])]]);
+}
+async function sharedLeave(l) {
+  await CLOUD.api.update('lists/' + l.id, [[['members'], CLOUD.api.remove(cloudUid())]]);
+  CLOUD.shared.delete(l.id); state.ui.list = 'watchlist'; refresh();
+  toast('Saliste de «' + l.name + '».');
+}
+/* festival compartido de a dos: se programa con el gusto combinado */
+function sharedCompanion(l) {
+  if (!l || !l.shared) return null;
+  var others = (l.members || []).filter(function (m) { return m !== cloudUid(); });
+  for (var i = 0; i < others.length; i++) { var c = CLOUD.buddies.filter(function (b) { return b.uid === others[i] && !b.pending; })[0]; if (c) return c; }
+  return null;
+}
+
+/* --- invitados (solo el administrador) --- */
+async function cloudLoadInvites() {
+  try { CLOUD.invites = (await CLOUD.api.list('invites')).map(function (d) { return { email: d.id, name: String((d.data && d.data.name) || '') }; }).sort(function (a, b) { return a.email.localeCompare(b.email); }); }
+  catch (e) { CLOUD.invites = null; }
+  if (state.ui.view === 'profile') renderProfile();
+}
+async function inviteAdd(email, name) {
+  email = String(email || '').trim().toLowerCase();
+  if (!/^[^\s@\/]+@[^\s@\/]+\.[^\s@\/]+$/.test(email) || email.length > 120) { toast('Ese mail no parece válido.'); return false; }
+  await CLOUD.api.set('invites/' + email, { name: String(name || '').replace(/[<>]/g, '').trim().slice(0, 40), by: cloudUid(), at: Date.now() });
+  await cloudLoadInvites();
+  return true;
+}
+async function inviteRemove(email) { await CLOUD.api.del('invites/' + email); await cloudLoadInvites(); }
+
+/* --- OMDb compartido: cada puntaje se consulta una vez y queda para todos --- */
+async function omdbFromCloud(imdb) {
+  if (!cloudIn()) return null;
+  try { var d = await CLOUD.api.get('omdb/' + imdb); if (d && d.r && typeof d.r === 'object' && +d.at > Date.now() - 45 * DAY) return cleanOmdb(d.r, +d.at); } catch (e) {}
+  return null;
+}
+function cleanOmdb(r, at) {
+  var o = { at: at || Date.now() }, n = function (v, lo, hi) { v = +v; return isFinite(v) && v >= lo && v <= hi ? v : null; };
+  if (r.none) o.none = true;
+  var a = n(r.imdb, 0, 10), b = n(r.votes, 0, 1e8), c = n(r.rt, 0, 100), d = n(r.mc, 0, 100);
+  if (a != null) o.imdb = a; if (b != null) o.votes = b; if (c != null) o.rt = c; if (d != null) o.mc = d;
+  return o;
+}
+function omdbToCloud(imdb, r) {
+  if (!cloudIn() || !r) return;
+  var o = {}; ['imdb', 'votes', 'rt', 'mc'].forEach(function (k) { if (r[k] != null) o[k] = r[k]; }); if (r.none) o.none = true;
+  CLOUD.api.set('omdb/' + imdb, { r: o, at: Date.now() }).catch(function () {});
+}
+
+/* --- interfaz: estado de la cuenta en Perfil y en la bienvenida --- */
+function cloudCardHTML() {
+  var st = CLOUD.status, u = CLOUD.user;
+  if (st === 'in' && u) return '<div class="cloud-card on"><span class="cloud-dot"></span><div><b>Conectado con Google</b><small>' + esc(u.email) + ' · tus datos se guardan en tu cuenta</small></div><button class="btn btn-ghost" type="button" data-cloud="out">Salir</button></div>';
+  if (st === 'checking') return '<div class="cloud-card"><span class="cloud-dot busy"></span><div><b>Conectando con tu cuenta…</b></div></div>';
+  if (st === 'denied') return '<div class="cloud-card warn"><div><b>Tu cuenta todavía no está invitada</b><small>' + esc(u ? u.email : '') + '. Pedile a quien te pasó la app que sume ese mail.</small></div><button class="btn" type="button" data-cloud="switch">Usar otra cuenta</button></div>';
+  if (st === 'error') return '<div class="cloud-card warn"><div><b>No pude conectar con tu cuenta</b><small>Puede ser la conexión. Lo de este dispositivo sigue funcionando.</small></div><button class="btn" type="button" data-cloud="in">Reintentar</button></div>';
+  return '<div class="cloud-card"><div><b>Guardá todo en tu cuenta</b><small>Entrá con Google para tener tus listas en cualquier dispositivo, watch buddies y listas compartidas. Por ahora es solo por invitación.</small></div><button class="btn btn-accent" type="button" data-cloud="in">Entrar con Google</button></div>';
+}
+function renderCloudUI() {
+  var ob = $('#obCloud'); if (ob) ob.innerHTML = cloudCardHTML();
+  /* se precarga para que el popup de Google abra en el mismo toque (si no, el navegador lo bloquea) */
+  if ((CLOUD.status === 'off' || CLOUD.status === 'out') && canPair()) cloudStart().catch(function () {});
+  if (state.ui.view === 'profile' && document.body.classList.contains('v-profile')) renderProfile();
+  if ($('#dlgDuo') && $('#dlgDuo').open) renderDuo();
+}
+function cloudAct(act, btn) {
+  if (act === 'in') { cloudSignIn(); return; }
+  if (act === 'out' || act === 'switch') { cloudSignOut().then(function () { if (act === 'switch') cloudSignIn(); }); return; }
+}
+
+/* ---------- instalación: abierta desde el navegador del celu, primero se instala ----------
+   Ningún link puede instalar una app solo: el navegador siempre pide un toque. En Android
+   ese toque es el botón de acá (y una vez instalada, los links de WatchListo se abren en la
+   app); en iPhone se hace desde Compartir. Se puede seguir en el navegador igual. */
+var installEvt = null;
+function isStandalone() { return (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true; }
+function isIOS() { var ua = navigator.userAgent || ''; return /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1); }
+function isPhoneUA() { return isIOS() || /Android/i.test(navigator.userAgent || ''); }
+function installSkipped() { try { return sessionStorage.getItem('wl.web') === '1'; } catch (e) { return false; } }
+function renderInstall() {
+  var g = $('#installGate'); if (!g) return;
+  var show = isPhoneUA() && !isStandalone() && !installSkipped() && canPair();
+  g.hidden = !show; document.body.classList.toggle('gated', show);
+  if (!show) return;
+  var btn = $('#instBtn'), steps = $('#instSteps'), txt = $('#instText');
+  if (state.installed) { txt.textContent = 'Listo, ya está instalada. Abrila desde el ícono de WatchListo en tu pantalla de inicio.'; btn.hidden = true; steps.hidden = true; return; }
+  if (isIOS()) {
+    txt.textContent = 'Así queda como una app y tus listas no se borran aunque el teléfono limpie Safari.'; btn.hidden = true; steps.hidden = false;
+    steps.innerHTML = '<li>Tocá <b>Compartir</b> (el cuadrado con la flecha hacia arriba).</li><li>Elegí <b>Agregar a inicio</b>.</li><li>Abrí WatchListo desde el ícono nuevo.</li>';
+  } else if (installEvt) {
+    txt.textContent = 'Un toque y queda como una app en tu pantalla de inicio. Después, los links de WatchListo se abren directo ahí.'; btn.hidden = false; steps.hidden = true;
+  } else {
+    txt.textContent = 'Así queda como una app y los links de WatchListo se abren directo ahí.'; btn.hidden = true; steps.hidden = false;
+    steps.innerHTML = '<li>Tocá el menú <b>⋮</b> arriba a la derecha.</li><li>Elegí <b>Instalar app</b> o <b>Agregar a la pantalla principal</b>.</li><li>Abrí WatchListo desde el ícono nuevo. Si ya la tenías instalada, abrila desde ahí.</li>';
+  }
+}
+window.addEventListener('beforeinstallprompt', function (e) { e.preventDefault(); installEvt = e; renderInstall(); });
+window.addEventListener('appinstalled', function () { state.installed = true; installEvt = null; renderInstall(); });
 
 /* ---------- sync (GitHub Gist) ---------- */
 var GIST_FILE = 'cartelera.json';
@@ -2959,6 +3448,8 @@ function bind() {
   $('#listbar').addEventListener('click', function (e) {
     var p = e.target.closest('[data-list]');
     if (p) { state.ui.list = p.dataset.list; state.listEdit = null; state.confirmDelete = null; refresh(); return; }
+    var pk = e.target.closest('[data-pick]');
+    if (pk) { state.shareSel = state.shareSel || new Set(); var u = pk.dataset.pick; if (state.shareSel.has(u)) state.shareSel.delete(u); else state.shareSel.add(u); renderListbar(); return; }
     var sm = e.target.closest('.rumbo-more summary');
     if (sm) { state.rumboMoreOpen = !sm.parentNode.open; return; }
     var rb = e.target.closest('[data-rumbo]');
@@ -2977,6 +3468,19 @@ function bind() {
       var k = tool.dataset.tool, cur = getList(state.ui.list);
       if (k === 'radio-more' && cur) { radioMore(cur); return; }
       if (k === 'foryou') { openForYou(); return; }
+      if ((k === 'share' || k === 'addmember') && cur) { state.listEdit = k; state.shareSel = new Set(); renderListbar(); return; }
+      if (k === 'share-go' && cur) {
+        var uids = Array.from(state.shareSel || []), mode = state.listEdit; if (!uids.length) return;
+        state.listEdit = null; renderListbar();
+        (mode === 'share' ? shareList(cur, uids) : sharedAddMembers(cur, uids).then(function () { toast('Listo, ya está en la lista.'); }))
+          .catch(function (e) { toast(isDenied(e) ? 'No tenés permiso para compartir esa lista.' : 'No pude compartir la lista. Probá de nuevo.'); });
+        return;
+      }
+      if (k === 'leave' && cur) {
+        if (state.confirmDelete === cur.id) { state.confirmDelete = null; sharedLeave(cur).catch(function () { toast('No pude sacarte de la lista.'); }); }
+        else { state.confirmDelete = cur.id; renderListbar(); setTimeout(function () { if (state.confirmDelete === cur.id) { state.confirmDelete = null; renderListbar(); } }, 4000); }
+        return;
+      }
       if (k === 'reco' && cur) { openReco(listKeys(cur).slice(0, 8).map(resolveItem)); return; }
       if (k === 'radio-from' && cur) { createRadio(listKeys(cur).slice(0, 8).map(resolveItem), 'Festival ' + cur.name); return; }
       if (k === 'new' || k === 'rename') { state.listEdit = k; renderListbar(); }
@@ -3073,7 +3577,10 @@ function bind() {
 
   /* perfil y barra inferior */
   $('#profile').addEventListener('click', function (e) { var b = e.target.closest('[data-pf]'); if (b && !b.disabled) profileAct(b.dataset.pf, b.dataset.v || ''); });
-  $('#profile').addEventListener('submit', function (e) { e.preventDefault(); var inp = $('#pfName'); if (inp) { state.settings.myName = inp.value.replace(/[<>]/g, '').trim().slice(0, 30); saveSettings(); inp.blur(); toast('Listo.'); renderProfile(); } });
+  $('#profile').addEventListener('submit', function (e) {
+    e.preventDefault();
+    if (e.target.id === 'invForm') { var em = $('#invEmail').value, nm = $('#invName').value; inviteAdd(em, nm).then(function (ok) { if (ok) toast('Invitado. Ahora mandale el link.'); }, function (err) { toast(isDenied(err) ? 'Solo el administrador puede invitar.' : 'No pude guardar la invitación.'); }); return; }
+    var inp = $('#pfName'); if (inp) { state.settings.myName = inp.value.replace(/[<>]/g, '').trim().slice(0, 30); saveSettings(); inp.blur(); toast('Listo.'); renderProfile(); } });
   $('#profile').addEventListener('focusout', function (e) { if (e.target.id === 'pfName') { var v = e.target.value.replace(/[<>]/g, '').trim().slice(0, 30); if (v !== (state.settings.myName || '')) { state.settings.myName = v; saveSettings(); } } });
   $('#tabbar').addEventListener('click', function (e) {
     var b = e.target.closest('[data-tab]'); if (!b) return;
@@ -3082,6 +3589,17 @@ function bind() {
     if (t === 'fest') { openFest(); return; }
     setView(t);
   });
+
+  /* instalación */
+  $('#instBtn').addEventListener('click', function () {
+    if (!installEvt) return;
+    var ev = installEvt; ev.prompt();
+    ev.userChoice.then(function (c) { if (c && c.outcome === 'accepted') state.installed = true; installEvt = null; renderInstall(); }, function () {});
+  });
+  $('#instSkip').addEventListener('click', function () { try { sessionStorage.setItem('wl.web', '1'); } catch (e) {} renderInstall(); });
+
+  /* cuenta */
+  document.addEventListener('click', function (e) { var b = e.target.closest('[data-cloud]'); if (b && !b.disabled) cloudAct(b.dataset.cloud, b); });
 
   /* de a dos */
   $('#duoBtn').addEventListener('click', openDuo);
@@ -3166,10 +3684,20 @@ function boot() {
   renderRail();
   registerSW();
   readTasteHash();
+  readBuddyHash();
+  CLOUD.pendingBuddy = CLOUD.pendingBuddy || LS.get('pendingBuddy', null);
+  cloudBoot();
+  renderCloudUI();
+  renderInstall();
+  if (CLOUD.pendingBuddy && !LS.get('cloudOn', false)) openDuo();
+  window.addEventListener('hashchange', function () {
+    readTasteHash(); readBuddyHash();
+    if (CLOUD.pendingBuddy) { if (cloudIn()) buddyOpenPending(); else openDuo(); }
+  });
   if (!state.settings.tmdbKey) { showOnboarding(); return; }
   start();
 }
 
-if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') window.__cartelera = { state: state, refresh: refresh, scoreFor: scoreFor, recommend: recommend, curFind: curFind, cur: function () { return CUR; }, openFest: openFest, openGuide: openGuide, rumboOf: rumboOf, rumboOut: rumboOut, itemLabels: itemLabels, openDuo: openDuo, packTaste: packTaste, unpackTaste: unpackTaste, comps: function () { return COMP; }, seenNow: seenNow, guide: function () { return state.guide; }, tasteProfile: tasteProfile, tasteSeeds: tasteSeeds, inviteUrl: inviteUrl, openReco: openReco, openPerson: openPerson, allSig: allSig, mergeUsers: mergeUsers, normUser: normUser, contentKey: contentKey, listKeys: listKeys, pairUrl: pairUrl, syncNow: syncNow };
+if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') window.__cartelera = { state: state, refresh: refresh, scoreFor: scoreFor, recommend: recommend, curFind: curFind, cur: function () { return CUR; }, openFest: openFest, openGuide: openGuide, rumboOf: rumboOf, rumboOut: rumboOut, itemLabels: itemLabels, openDuo: openDuo, packTaste: packTaste, unpackTaste: unpackTaste, comps: function () { return COMP; }, cloud: function () { return CLOUD; }, cloudSyncModel: cloudSyncModel, allComps: allComps, seenNow: seenNow, guide: function () { return state.guide; }, tasteProfile: tasteProfile, tasteSeeds: tasteSeeds, inviteUrl: inviteUrl, openReco: openReco, openPerson: openPerson, allSig: allSig, mergeUsers: mergeUsers, normUser: normUser, contentKey: contentKey, listKeys: listKeys, pairUrl: pairUrl, syncNow: syncNow };
 boot();
 })();

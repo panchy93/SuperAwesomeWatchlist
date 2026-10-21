@@ -2,7 +2,7 @@
 <html lang="es-AR">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' https://image.tmdb.org; connect-src 'self' https://api.themoviedb.org https://www.omdbapi.com https://api.github.com https://gist.githubusercontent.com; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' https://www.gstatic.com https://apis.google.com; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' https://image.tmdb.org; connect-src 'self' https://api.themoviedb.org https://www.omdbapi.com https://api.github.com https://gist.githubusercontent.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://www.googleapis.com; frame-src https://watchlisto-de547.firebaseapp.com; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
 <meta name="referrer" content="no-referrer">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark light">
@@ -128,6 +128,7 @@
     <section class="onboard" id="onboard" hidden>
       <h2>Tus cuatro servicios, una sola <span>lista</span></h2>
       <p>Netflix, Prime Video, Disney+ y HBO Max de Argentina en una sola grilla, con filtros por género y rating y listas propias. Para leer los catálogos necesito una clave gratuita de TMDB, la base de datos que usa JustWatch.</p>
+      <div class="ob-cloud"><p><b>¿Te invitaron?</b> Entrá con tu cuenta de Google y queda todo configurado, sin claves.</p><div id="obCloud"></div></div>
       <p><b>¿Ya la usás en otro dispositivo?</b> Ahí abrí Ajustes → Vincular otro dispositivo y escaneá el código con la cámara de este. Queda todo configurado, listas incluidas.</p>
       <ol class="steps">
         <li>Creá una cuenta en <a href="https://www.themoviedb.org/signup" target="_blank" rel="noopener noreferrer">themoviedb.org</a>.</li>
@@ -314,6 +315,17 @@
     <div class="row"><button class="btn btn-accent" type="submit" id="saveSettings">Guardar</button><button class="btn btn-ghost" type="button" data-close>Cancelar</button></div>
   </form>
 </dialog>
+
+<section class="install" id="installGate" hidden aria-labelledby="instTitle">
+  <div class="install-in">
+    <img src="icons/icon-192.png" alt="" width="96" height="96">
+    <h2 id="instTitle">Instalá Watch<span>Listo</span></h2>
+    <p id="instText"></p>
+    <button class="btn btn-accent install-btn" id="instBtn" type="button" hidden>Instalar WatchListo</button>
+    <ol class="steps install-steps" id="instSteps" hidden></ol>
+    <button class="linkbtn" id="instSkip" type="button">Seguir en el navegador</button>
+  </div>
+</section>
 
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 </body>

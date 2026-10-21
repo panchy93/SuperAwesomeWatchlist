@@ -1,0 +1,77 @@
+rules_version = '2';
+
+// Reglas de WatchListo. Se pegan en Firebase → Firestore → Reglas → Publicar.
+// Solo entran mails invitados (o el administrador). Cada uno lee y escribe lo suyo;
+// el gusto de alguien lo ven solo sus watch buddies; una lista compartida la tocan solo sus miembros.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null && request.auth.token.email_verified == true; }
+    function email() { return request.auth.token.email.lower(); }
+    function isAdmin() { return signedIn() && email() == 'pfiguerero@gmail.com'; }
+    function invited() { return isAdmin() || (signedIn() && exists(/databases/$(database)/documents/invites/$(email()))); }
+    function me() { return request.auth.uid; }
+    function onlyKeys(k) { return request.resource.data.keys().hasOnly(k); }
+
+    // Lista de invitados: la maneja el administrador; cada uno puede ver si está.
+    match /invites/{mail} {
+      allow get: if signedIn() && (isAdmin() || mail == email());
+      allow list, delete: if isAdmin();
+      allow create, update: if isAdmin() && onlyKeys(['name', 'by', 'at']);
+    }
+
+    // Claves de los catálogos (TMDB, OMDb) para que los invitados no configuren nada.
+    match /config/{doc} {
+      allow read: if invited();
+      allow write: if isAdmin() && doc == 'keys' && onlyKeys(['tmdb', 'omdb', 'at']);
+    }
+
+    // Perfil público mínimo (nombre y buddies). Lo ve uno mismo y quien uno haya aceptado.
+    match /users/{uid} {
+      allow read: if invited() && (uid == me() || me() in resource.data.get('buddies', []));
+      allow create, update: if invited() && uid == me() && onlyKeys(['name', 'photo', 'buddies', 'at'])
+        && request.resource.data.get('buddies', []).size() <= 100;
+      allow delete: if signedIn() && uid == me();
+
+      // Todos tus datos (listas privadas, vistas, estrellas): solo vos.
+      match /private/model {
+        allow read, write: if invited() && uid == me();
+      }
+      // Tu gusto (vistas y estrellas): vos y tus watch buddies.
+      match /private/taste {
+        allow read: if invited() && (uid == me()
+          || me() in get(/databases/$(database)/documents/users/$(uid)).data.get('buddies', []));
+        allow write: if invited() && uid == me();
+      }
+    }
+
+    // Invitaciones para ser watch buddies (link con código).
+    match /buddyInvites/{code} {
+      allow get: if invited();
+      allow list: if invited() && resource.data.from == me();
+      allow create: if invited() && code.size() >= 16 && request.resource.data.from == me()
+        && onlyKeys(['from', 'fromName', 'at']);
+      allow update: if invited() && resource.data.from != me() && !('acceptedBy' in resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['acceptedBy', 'acceptedName'])
+        && request.resource.data.acceptedBy == me();
+      allow delete: if invited() && resource.data.from == me();
+    }
+
+    // Listas y festivales compartidos.
+    match /lists/{id} {
+      allow read: if invited() && me() in resource.data.members;
+      allow create: if invited() && me() in request.resource.data.members
+        && request.resource.data.owner == me() && request.resource.data.members.size() <= 20;
+      allow update: if invited() && me() in resource.data.members
+        && request.resource.data.owner == resource.data.owner && request.resource.data.members.size() <= 20;
+      allow delete: if invited() && resource.data.owner == me();
+    }
+
+    // Puntajes de OMDb compartidos: se consultan una vez y quedan para todos.
+    match /omdb/{imdb} {
+      allow read: if invited();
+      allow create, update: if invited() && imdb.matches('tt[0-9]{5,10}') && onlyKeys(['r', 'at'])
+        && request.resource.data.r is map
+        && request.resource.data.r.keys().hasOnly(['imdb', 'votes', 'rt', 'mc', 'none']);
+    }
+  }
+}

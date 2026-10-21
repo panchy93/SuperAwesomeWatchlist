@@ -40,3 +40,20 @@ Para elegir con otra persona. Cada uno puede generar un link con su gusto (lo qu
 - **Rumbo de un festival:** cada festival muestra las etiquetas de sus pelis base. Sacar una oculta los títulos en los que lo sacado pesa más que lo que queda (por ejemplo, sin "Bélico" se van las de guerra y acción y quedan los dramas de guerra) y orienta lo que se suma después. Es reversible y se sincroniza con la lista.
 - **Perfil:** vistas recientes, listas y festivales, watch buddies y un resumen de tu gusto (género, etiquetas, tono y década favoritas, horas en pantalla, promedio, joya escondida, opinión impopular).
 - **En el celu:** barra inferior con Catálogo, Listas, Elegime, Festivales y Perfil; Ajustes está dentro de Perfil.
+
+## Cuentas (Firebase, por invitación)
+
+Opcional: sin sesión todo sigue funcionando en el dispositivo. Con **Entrar con Google** (en Perfil o en la bienvenida):
+
+- Tus listas, vistas y estrellas se guardan en tu cuenta y se mezclan con las del dispositivo sin pisar nada.
+- Las claves de TMDB y OMDb llegan configuradas a los invitados (las publica el administrador).
+- **Watch buddies:** invitación por link; cada uno decide quién ve su gusto. Aparecen en De a dos.
+- **Listas y festivales compartidos:** desde la barra de listas, "Compartir" con uno o más buddies. Cada cambio se guarda campo por campo, así dos personas pueden editar a la vez. Un festival compartido de a dos se programa con el gusto de los dos.
+- **OMDb compartido:** cada puntaje se consulta una vez y queda guardado para todos.
+- **Invitados:** el administrador los maneja desde Perfil → Invitados. Solo esos mails pueden entrar.
+
+La configuración web de Firebase está en `app.js` (no es secreta). Quién puede leer y escribir qué lo deciden las reglas de `firestore.rules`, que se pegan en Firebase → Firestore → Reglas.
+
+## Instalación
+
+Abierta desde el navegador de un celular, la app pide instalarse primero (en Android con un toque; en iPhone desde Compartir → Agregar a inicio). Se puede seguir en el navegador igual.
