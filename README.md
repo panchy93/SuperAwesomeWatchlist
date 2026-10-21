@@ -10,3 +10,7 @@ Catálogo personal de Netflix, Prime Video, Disney+ y HBO Max en Argentina, con 
 - Si perdés un dispositivo, revocá el token en GitHub (Settings → Developer settings → Personal access tokens) y creá uno nuevo.
 
 Este producto usa la API de TMDB pero no está avalado ni certificado por TMDB. Disponibilidad en streaming provista por JustWatch a través de TMDB.
+
+## Curaduría
+
+`curaduria.json` tiene etiquetas hechas a mano (subgénero, temas, tono, sección y parientes) para unos 230 títulos de terror y géneros vecinos. Las recomendaciones y los festivales las usan cuando la película está en la base. Se regenera con `python3 tools/build_curaduria.py`, que valida el vocabulario y que cada pariente exista.

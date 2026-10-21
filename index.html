@@ -192,6 +192,16 @@
       </div>
     </fieldset>
 
+    <fieldset id="inviteSet">
+      <legend>Invitar a alguien</legend>
+      <p class="hint">Para tu pareja o tus amigos. La invitación lleva solo las claves de los catálogos, nunca tu conexión a GitHub ni tus listas. Cada persona arma sus propias listas, que quedan guardadas en su celu. Conviene que la instalen en la pantalla de inicio: así el teléfono no borra las listas.</p>
+      <label class="check"><input type="checkbox" id="inviteOmdb" checked>Incluir la clave de OMDb (comparten el límite de 1.000 consultas por día)</label>
+      <div class="row"><button class="btn" type="button" id="inviteCopy">Copiar link de invitación</button><button class="btn btn-ghost" type="button" id="inviteQr">Mostrar QR</button></div>
+      <label class="sr" for="inviteOut">Link de invitación</label>
+      <input class="inp" id="inviteOut" readonly hidden>
+      <div class="pairbox" id="inviteBox" hidden><div class="qr" id="inviteQrBox"></div><p class="hint">Que lo escaneen con la cámara del celu.</p></div>
+    </fieldset>
+
     <fieldset>
       <legend>Claves de los catálogos</legend>
       <label class="field">TMDB<span class="pw"><input class="inp" id="sTmdb" type="password" spellcheck="false" autocomplete="off"><button class="btn" type="button" data-reveal="sTmdb">Ver</button></span></label>

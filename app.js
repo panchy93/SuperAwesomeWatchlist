@@ -854,13 +854,13 @@ function renderListbar() {
     tools = '<button class="btn" type="button" data-tool="new"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Nueva lista</button>';
     var count = l ? listKeys(l).length : 0;
     if (l && isRadio(l)) tools += '<button class="btn btn-accent" type="button" data-tool="radio-more"' + (state.radioBusy ? ' disabled' : '') + '>' + (state.radioBusy ? 'Buscando…' : 'Sumar 10 más') + '</button>';
-    else if (l && count) tools += '<button class="btn" type="button" data-tool="reco">Parecidas a esta lista</button><button class="btn" type="button" data-tool="radio-from">Armar radio</button>';
+    else if (l && count) tools += '<button class="btn" type="button" data-tool="reco">Parecidas a esta lista</button><button class="btn" type="button" data-tool="radio-from">Armar festival</button>';
     if (editable) tools += '<button class="btn btn-ghost" type="button" data-tool="rename">Renombrar</button><button class="btn btn-ghost" type="button" data-tool="delete">' + (state.confirmDelete === l.id ? 'Confirmar borrado' : 'Borrar lista') + '</button>';
   }
   var radioHint = '';
   if (l && isRadio(l) && !state.listEdit) {
     var seeds = Object.keys(l.seeds).map(resolveItem).filter(Boolean).map(function (s) { return s.t; });
-    radioHint = '<p class="hint radio-hint"><span class="radio-tag">Radio</span> Semillas: ' + esc(seeds.join(', ')) + '. Abrí una peli de la lista para sumarla como semilla o decir que no va.</p>';
+    radioHint = '<p class="hint radio-hint"><span class="radio-tag">Festival</span> Programado a partir de: ' + esc(seeds.join(', ')) + '. Abrí cualquier peli para usarla como base o sacarla del festival.</p>';
   }
   bar.innerHTML = pills.join('') + '<span class="list-tools">' + tools + '</span>' + radioHint;
   var inp = $('#newListInp') || $('#renListInp'); if (inp) inp.focus();
@@ -1030,6 +1030,17 @@ function renderDetail() {
   var watch = inList('watchlist', it.k), seen = isSeen(it.k), stars = starOf(it.k), rctx = radioContext();
   var starBtns = ''; for (var i = 1; i <= 5; i++) starBtns += '<button class="star' + (i <= stars ? ' on' : '') + '" type="button" data-star="' + i + '" aria-label="' + i + (i === 1 ? ' estrella' : ' estrellas') + '" aria-pressed="' + (i === stars) + '">' + ICON.star + '</button>';
   var listChips = visibleLists().filter(function (l) { return l.id !== 'watchlist'; }).map(function (l) { return '<button class="chip" type="button" data-dlist="' + esc(l.id) + '" aria-pressed="' + isIn(l, it.k) + '">' + esc(l.name) + '</button>'; }).join('');
+  var cf = curFind({ t: title, ot: orig, y: it.y, type: it.type }) || curFind(it), curHtml = '';
+  if (cf) {
+    var L = CUR.labels, tag = function (v) { return '<span class="ctag">' + esc(v) + '</span>'; };
+    var rels = Array.from(CUR.rel.get(cf.id) || []).slice(0, 6).map(function (r) { var f = CUR.byId.get(r); return f.t + ' (' + f.y + ')'; });
+    curHtml = '<div class="dsec cur"><h3>Curaduría</h3><p class="cur-sec">Sección <b>' + esc(L.sec[cf.sec]) + '</b></p>' +
+      '<div class="ctags">' + cf.sub.map(function (v) { return tag(L.sub[v]); }).join('') + cf.tem.map(function (v) { return tag(L.tem[v]); }).join('') + cf.ton.map(function (v) { return tag(L.ton[v]); }).join('') + '</div>' +
+      (rels.length ? '<p class="hint">Parientes: ' + esc(rels.join(' · ')) + '</p>' : '') +
+      '<div class="actions-2"><button class="btn" type="button" data-cursec="' + esc(cf.sec) + '">Armar festival: ' + esc(L.sec[cf.sec]) + '</button></div></div>';
+  }
+  var dtddTitle = (cf && cf.t) || orig || title;
+  links.push('<a href="https://www.doesthedogdie.com/search?q=' + encodeURIComponent(dtddTitle) + '"' + ext + '>Advertencias (Does the Dog Die)</a>');
   var html =
     '<button class="dlg-x" type="button" data-close aria-label="Cerrar">' + ICON.x + '</button>' +
     '<div class="det-hero"></div>' +
@@ -1049,10 +1060,11 @@ function renderDetail() {
         '</div>' +
         '<div class="actions-2">' +
           '<button class="btn" type="button" data-dact="reco">Más como esta</button>' +
-          '<button class="btn" type="button" data-dact="radio">Radio ' + esc(String(title).slice(0, 28)) + '</button>' +
-          (rctx && listKeys(rctx).indexOf(it.k) >= 0 ? (rctx.seeds[it.k] ? '<span class="hint">Es semilla de esta radio.</span>' : '<button class="btn" type="button" data-dact="seed">Sumar como semilla</button>') + '<button class="btn btn-ghost" type="button" data-dact="nope">No va en esta radio</button>' : '') +
+          '<button class="btn" type="button" data-dact="radio">Armar festival</button>' +
+          (rctx && listKeys(rctx).indexOf(it.k) >= 0 ? (rctx.seeds[it.k] ? '<span class="hint">Es una de las pelis base de este festival.</span>' : '<button class="btn" type="button" data-dact="seed">Usar como base</button>') + '<button class="btn btn-ghost" type="button" data-dact="nope">Sacar del festival</button>' : '') +
         '</div>' +
         (listChips ? '<div class="dsec"><h3>Tus listas</h3><div class="chips">' + listChips + '</div></div>' : '') +
+        curHtml +
         (full && full.tagline ? '<p class="tagline">' + esc(full.tagline) + '</p>' : '') +
         (full ? '<p class="overview">' + esc(full.overview || 'Sin sinopsis en este idioma.') + '</p>' : (D.error ? '<p class="err">' + esc(D.error) + '</p>' : '<p class="hint">Cargando la ficha…</p>')) +
         (people ? '<dl class="kv">' + people + '</dl>' : '') +
@@ -1240,8 +1252,71 @@ function renderSpecialBar() {
       '<span class="grow"></span>' + (sp.loading ? '' : '<button class="btn" type="button" data-pfilter>Filtrar mi cartelera por ' + esc(sp.title) + '</button>');
   } else if (sp.kind === 'reco') {
     bar.innerHTML = '<p class="seeds">A partir de ' + sp.seeds.map(function (s) { return '<b>' + esc(s.t) + '</b>'; }).join(', ') + '</p><span class="grow"></span>' +
-      (sp.loading ? '' : '<button class="btn btn-accent" type="button" data-mkradio>Guardar como radio</button>');
+      (sp.loading ? '' : '<button class="btn btn-accent" type="button" data-mkradio>Armar festival</button>');
   }
+}
+
+/* ---------- curaduría (etiquetas hechas a mano, en curaduria.json) ---------- */
+var CUR = null;
+var curMap = LS.get('curmap', {});
+var saveCurMapSoon = debounce(function () { LS.set('curmap', curMap); }, 1500);
+function curNorm(s) { return fold(s).replace(/[\s\-–—:;,.!?¡¿'"’‘“”()\[\]&\/·]+/g, ' ').trim(); }
+function loadCuraduria() {
+  return fetch('curaduria.json', { credentials: 'omit' }).then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
+    if (!j || !Array.isArray(j.films) || !j.labels) return;
+    var byKey = new Map(), byId = new Map(), rel = new Map();
+    var link = function (a, b) { if (!rel.has(a)) rel.set(a, new Set()); rel.get(a).add(b); };
+    j.films.forEach(function (f) {
+      if (!f || !f.id || !Array.isArray(f.sub) || !Array.isArray(f.tem) || !Array.isArray(f.ton)) return;
+      byId.set(f.id, f);
+      [f.t, f.ot].filter(Boolean).forEach(function (t) { byKey.set(curNorm(t) + '|' + f.y + '|' + (f.tv ? 't' : 'm'), f); });
+    });
+    byId.forEach(function (f) { (f.rel || []).forEach(function (r) { if (byId.has(r)) { link(f.id, r); link(r, f.id); } }); });
+    CUR = { labels: j.labels, byKey: byKey, byId: byId, rel: rel, films: Array.from(byId.values()) };
+  }).catch(function () {});
+}
+function curFind(it) {
+  if (!CUR || !it) return null;
+  var tp = it.type === 'tv' ? 't' : 'm', y = +it.y;
+  var names = [it.ot, it.t].filter(Boolean).map(curNorm), ys = y ? [y, y - 1, y + 1] : [];
+  for (var i = 0; i < names.length; i++) for (var j = 0; j < ys.length; j++) { var f = CUR.byKey.get(names[i] + '|' + ys[j] + '|' + tp); if (f) return f; }
+  return null;
+}
+function curJac(x, y) { if (!x.length || !y.length) return 0; var s = new Set(x), i = y.filter(function (v) { return s.has(v); }).length; return i / new Set(x.concat(y)).size; }
+function curSim(a, b) { return Math.min(1, 0.45 * curJac(a.sub, b.sub) + 0.35 * curJac(a.tem, b.tem) + 0.2 * curJac(a.ton, b.ton) + (a.sec === b.sec ? 0.15 : 0)); }
+function curRel(a, b) { var s = CUR.rel.get(a.id); return !!(s && s.has(b.id)); }
+function curShared(a, b) {
+  var L = CUR.labels, out = [];
+  a.sub.forEach(function (v) { if (b.sub.indexOf(v) >= 0) out.push(L.sub[v]); });
+  a.tem.forEach(function (v) { if (b.tem.indexOf(v) >= 0) out.push(L.tem[v]); });
+  return out;
+}
+async function curResolve(f) {
+  var c = curMap[f.id];
+  if (c) return c.none ? null : c;
+  var type = f.tv ? 'tv' : 'movie', yk = f.tv ? 'first_air_date_year' : 'primary_release_year';
+  var near = function (r) { var d = r.release_date || r.first_air_date || ''; var y = parseInt(d.slice(0, 4), 10); return y && Math.abs(y - f.y) <= 1; };
+  var find = async function (query, withYear) {
+    var p = { query: query, language: state.settings.lang, include_adult: 'false' };
+    if (withYear) p[yk] = f.y;
+    var d = await tmdb('/search/' + type, p);
+    return (d.results || []).filter(near)[0] || null;
+  };
+  var r = await find(f.ot || f.t, true) || (f.ot ? await find(f.t, true) : null) || await find(f.ot || f.t, false);
+  var it = r ? cleanSnap(norm(r, type), itemKey(type, r.id)) : null;
+  curMap[f.id] = it || { none: 1 };
+  saveCurMapSoon();
+  return it;
+}
+async function curSectionSeeds(sec, n) {
+  var films = CUR.films.filter(function (f) { return f.sec === sec; });
+  films.sort(function (a, b) { return (CUR.rel.get(b.id) || new Set()).size - (CUR.rel.get(a.id) || new Set()).size; });
+  var seeds = [];
+  for (var i = 0; i < films.length && seeds.length < n; i++) {
+    var it = await curResolve(films[i]);
+    if (it && !isSeen(it.k)) seeds.push(it);
+  }
+  return seeds;
 }
 
 /* ---------- recomendaciones ----------
@@ -1259,13 +1334,14 @@ async function seedInfo(seed) {
   var dirs = (type === 'movie' ? (dig(d, 'credits.crew') || []).filter(function (x) { return x.job === 'Director'; }) : (d.created_by || [])).slice(0, 2);
   var date = d.release_date || d.first_air_date || '';
   var info = { at: Date.now(), k: seed.k, type: type, y: parseInt(date.slice(0, 4), 10) || null, genres: (d.genres || []).map(function (g) { return g.id; }), kws: kws.map(function (k) { return { id: k.id, name: String(k.name) }; }), dirs: dirs.map(function (x) { return { id: x.id, name: String(x.name) }; }) };
+  info.cur = curFind({ t: d.title || d.name, ot: d.original_title || d.original_name, y: info.y, type: type }) || curFind(seed);
   var cands = new Map();
-  var add = function (r, t, tag) {
-    if (!r || !r.id || r.adult) return;
-    var k = itemKey(t, r.id); if (k === seed.k) return;
-    var c2 = cands.get(k); if (!c2) { c2 = { it: norm(r, t), tags: {} }; cands.set(k, c2); }
+  var addIt = function (it, tag) {
+    if (!it || it.k === seed.k) return;
+    var c2 = cands.get(it.k); if (!c2) { c2 = { it: it, tags: {} }; cands.set(it.k, c2); }
     c2.tags[tag] = 1;
   };
+  var add = function (r, t, tag) { if (r && r.id && !r.adult) addIt(norm(r, t), tag); };
   (dig(d, 'recommendations.results') || []).forEach(function (r) { add(r, type, 'rec'); });
   (dig(d, 'similar.results') || []).forEach(function (r) { add(r, type, 'sim'); });
   var soft = function (e) { if (e && e.fatal) throw e; };
@@ -1279,9 +1355,16 @@ async function seedInfo(seed) {
   if (info.genres.length && info.kws.length) {
     jobs.push(tmdb('/discover/' + type, { with_genres: info.genres.slice(0, 2).join(','), with_keywords: info.kws.slice(0, 4).map(function (k) { return k.id; }).join('|'), sort_by: 'vote_average.desc', 'vote_count.gte': type === 'movie' ? 300 : 80, include_adult: 'false', language: lang }).then(function (r) { (r.results || []).forEach(function (x) { add(x, type, 'gk'); }); }, soft));
   }
+  if (info.cur) {
+    var me = info.cur;
+    var neigh = CUR.films.filter(function (f) { return f.id !== me.id; })
+      .map(function (f) { return { f: f, s: curSim(me, f) + (curRel(me, f) ? 0.5 : 0) }; })
+      .sort(function (a, b) { return b.s - a.s; }).slice(0, 18);
+    jobs.push(pool(neigh, 4, async function (n) { var it = await curResolve(n.f); if (it) addIt(Object.assign({ s: [] }, it), 'cur'); }).catch(soft));
+  }
   await Promise.all(jobs);
   info.cands = Array.from(cands.values()).map(function (x) { return { it: x.it, tags: Object.keys(x.tags) }; });
-  state.seedCache[seed.k] = info;
+  if (CUR) state.seedCache[seed.k] = info;
   return info;
 }
 function scoreCand(c, info) {
@@ -1299,7 +1382,16 @@ function scoreCand(c, info) {
   var s = 0.32 * genre + 0.24 * theme + 0.16 * (dir ? 1 : 0) + 0.14 * recS + 0.06 * era + 0.08 * q;
   if (!inter) s *= 0.5;
   if ((c.it.vc || 0) < 30) s *= 0.6;
-  return { s: s, kw: kw, dir: dir, rec: rec || sim, genre: inter > 0 };
+  var shared = [], relFlag = false;
+  if (info.cur) {
+    var cc = curFind(c.it);
+    if (cc) {
+      relFlag = curRel(info.cur, cc);
+      shared = curShared(info.cur, cc);
+      s = 0.45 * s + 0.4 * curSim(info.cur, cc) + (relFlag ? 0.2 : 0);
+    } else s *= 0.85;
+  }
+  return { s: s, kw: kw, dir: dir, rec: rec || sim, genre: inter > 0, cur: shared, relFlag: relFlag };
 }
 async function recommend(seeds, progress) {
   var infos = [];
@@ -1314,17 +1406,20 @@ async function recommend(seeds, progress) {
       if (seedKeys.has(c.it.k)) return;
       var r = scoreCand(c, info);
       var a = agg.get(c.it.k);
-      if (!a) { a = { it: c.it, sum: 0, hits: 0, kws: {}, dirs: {}, rec: false, genre: false }; agg.set(c.it.k, a); }
+      if (!a) { a = { it: c.it, sum: 0, hits: 0, kws: {}, dirs: {}, cur: {}, rel: false, rec: false, genre: false }; agg.set(c.it.k, a); }
       a.sum += r.s; if (r.s > 0.35) a.hits++;
       r.kw.forEach(function (k) { a.kws[k] = 1; }); if (r.dir) a.dirs[r.dir] = 1; if (r.rec) a.rec = true; if (r.genre) a.genre = true;
+      r.cur.forEach(function (x) { a.cur[x] = 1; }); if (r.relFlag) a.rel = true;
     });
   });
   var out = [];
   agg.forEach(function (a) {
-    var parts = [], dirs = Object.keys(a.dirs), kws = Object.keys(a.kws);
+    var parts = [], dirs = Object.keys(a.dirs), kws = Object.keys(a.kws), cur = Object.keys(a.cur);
+    if (a.rel) parts.push('Pariente directo');
     if (dirs.length) parts.push('De ' + dirs.slice(0, 2).join(' y '));
-    if (kws.length) parts.push('Temas: ' + kws.slice(0, 3).join(', '));
-    if (a.rec) parts.push('TMDB la recomienda');
+    if (cur.length) parts.push('Comparte: ' + cur.slice(0, 3).join(', '));
+    else if (kws.length) parts.push('Temas: ' + kws.slice(0, 3).join(', '));
+    if (a.rec && !cur.length) parts.push('TMDB la recomienda');
     if (!parts.length && a.genre) parts.push('Mismo género');
     out.push({ it: fromCatalog(a.it), match: a.sum / infos.length + 0.08 * Math.max(0, a.hits - 1), why: parts.join(' · ') });
   });
@@ -1372,20 +1467,20 @@ async function createRadio(seeds, name) {
   seeds = seeds.filter(Boolean).slice(0, 8);
   if (!seeds.length) return;
   closeDialog($('#dlgDetail'));
-  var l = createList(String(name || ('Radio ' + seeds[0].t + (seeds.length > 1 ? ' +' + (seeds.length - 1) : ''))).slice(0, 40));
+  var l = createList(String(name || ('Festival ' + seeds[0].t + (seeds.length > 1 ? ' +' + (seeds.length - 1) : ''))).slice(0, 40));
   var t = now();
   seeds.forEach(function (s) { l.seeds[s.k] = t; state.user.items[s.k] = snapshot(s); });
   state.special = null; state.ui.view = 'lists'; state.ui.list = l.id; state.listEdit = null;
   state.radioBusy = true; refresh(); window.scrollTo(0, 0);
-  toast('Armando la radio…');
-  try { var n = await radioFill(l, 20); toast(n ? 'Radio lista: ' + n + ' títulos.' : 'No encontré parecidas nuevas.'); }
+  toast('Armando el festival…');
+  try { var n = await radioFill(l, 20); toast(n ? 'Festival armado: ' + n + ' títulos.' : 'No encontré parecidas nuevas.'); }
   catch (e) { if (e.fatal) fatal(e); else toast(e.message); }
   finally { state.radioBusy = false; refresh(true); }
 }
 async function radioMore(l) {
   if (state.radioBusy) return;
   state.radioBusy = true; renderListbar();
-  try { var n = await radioFill(l, 10); toast(n ? 'Sumé ' + n + ' a la radio.' : 'No encontré parecidas nuevas. Probá sumar otra semilla.'); }
+  try { var n = await radioFill(l, 10); toast(n ? 'Sumé ' + n + ' al festival.' : 'No encontré parecidas nuevas. Probá sumar otra peli base.'); }
   catch (e) { if (e.fatal) fatal(e); else toast(e.message); }
   finally { state.radioBusy = false; refresh(true); }
 }
@@ -1475,6 +1570,24 @@ function pairUrl() {
   var parts = ['1', s.tmdbKey, s.omdbKey, s.ghToken, s.gistId, s.lang].map(function (x) { return String(x || '').trim(); });
   return location.origin + location.pathname + '#pair=' + parts.join('~');
 }
+function inviteUrl() {
+  var s = state.settings, withOmdb = $('#inviteOmdb').checked;
+  var parts = ['1', s.tmdbKey, withOmdb ? s.omdbKey : '', '', '', s.lang].map(function (x) { return String(x || '').trim(); });
+  return location.origin + location.pathname + '#pair=' + parts.join('~');
+}
+function resetInvite() { $('#inviteOut').hidden = true; $('#inviteOut').value = ''; $('#inviteBox').hidden = true; $('#inviteQrBox').innerHTML = ''; }
+function inviteCopy() {
+  if (!state.settings.tmdbKey) { toast('Primero cargá la clave de TMDB.'); return; }
+  var url = inviteUrl(), out = $('#inviteOut');
+  out.value = url; out.hidden = false;
+  var fallback = function () { out.focus(); out.select(); toast('Copiá el link del campo de abajo.'); };
+  try { navigator.clipboard.writeText(url).then(function () { toast('Link de invitación copiado.'); }, fallback); } catch (e) { fallback(); }
+}
+function inviteQr() {
+  if (!state.settings.tmdbKey) { toast('Primero cargá la clave de TMDB.'); return; }
+  try { $('#inviteQrBox').innerHTML = window.CarteleraQR.toSvg(inviteUrl(), { label: 'Código de invitación a Cartelera' }); $('#inviteBox').hidden = false; }
+  catch (e) { toast('No pude generar el código.'); }
+}
 var pairTimer;
 function showPair() {
   if (!state.settings.tmdbKey) { toast('Primero cargá la clave de TMDB.'); return; }
@@ -1499,7 +1612,7 @@ function readPairHash() {
   if (parts[4]) s.gistId = parts[4];
   if (['es-MX', 'es-ES', 'en-US'].indexOf(parts[5]) >= 0) s.lang = parts[5];
   saveSettings();
-  toast(parts[3] ? 'Dispositivo vinculado. Trayendo tus listas…' : 'Dispositivo vinculado.');
+  toast(parts[3] ? 'Dispositivo vinculado. Trayendo tus listas…' : '¡Listo! Ya tenés tu Cartelera. Tus listas se guardan en este dispositivo.');
   return true;
 }
 
@@ -1517,6 +1630,8 @@ function fillSettingsForm() {
   var st = $('#syncState'); st.dataset.s = s.ghToken ? state.sync.s : 'off'; st.textContent = s.ghToken ? state.sync.status : 'Sin sincronizar.';
   var ok = canPair();
   $('#pairShow').disabled = !ok;
+  $('#inviteCopy').disabled = !ok; $('#inviteQr').disabled = !ok;
+  resetInvite();
   $('#pairHint').textContent = ok ? 'Muestra un código QR con tus claves y la conexión a GitHub. Lo escaneás con la cámara del otro dispositivo y queda listo, sin tipear nada.' : 'Disponible cuando abrís Cartelera desde su dirección web, no como archivo suelto.';
   hidePair();
   $$('[data-reveal]').forEach(function (b) { var inp = document.getElementById(b.dataset.reveal); inp.type = 'password'; b.textContent = 'Ver'; });
@@ -1640,8 +1755,8 @@ function clearFilters() {
 }
 function radioAction(kind, it) {
   var l = radioContext(); if (!l) return;
-  if (kind === 'seed') { l.seeds[it.k] = now(); state.user.items[it.k] = snapshot(it); touchUser(); toast('Sumada como semilla. La próxima tanda la tiene en cuenta.'); renderDetail(); renderListbar(); }
-  if (kind === 'nope') { l.nos[it.k] = now(); l.rms[it.k] = now(); touchUser(); closeDialog($('#dlgDetail')); toast('Sacada de la radio. No vuelve a aparecer.'); refresh(true); }
+  if (kind === 'seed') { l.seeds[it.k] = now(); state.user.items[it.k] = snapshot(it); touchUser(); toast('Ahora es base del festival. La próxima tanda la tiene en cuenta.'); renderDetail(); renderListbar(); }
+  if (kind === 'nope') { l.nos[it.k] = now(); l.rms[it.k] = now(); touchUser(); closeDialog($('#dlgDetail')); toast('Sacada del festival. No vuelve a aparecer.'); refresh(true); }
 }
 
 function bind() {
@@ -1778,7 +1893,7 @@ function bind() {
       var k = tool.dataset.tool, cur = getList(state.ui.list);
       if (k === 'radio-more' && cur) { radioMore(cur); return; }
       if (k === 'reco' && cur) { openReco(listKeys(cur).slice(0, 8).map(resolveItem)); return; }
-      if (k === 'radio-from' && cur) { createRadio(listKeys(cur).slice(0, 8).map(resolveItem), 'Radio ' + cur.name); return; }
+      if (k === 'radio-from' && cur) { createRadio(listKeys(cur).slice(0, 8).map(resolveItem), 'Festival ' + cur.name); return; }
       if (k === 'new' || k === 'rename') { state.listEdit = k; renderListbar(); }
       if (k === 'delete') {
         var l = getList(state.ui.list); if (!l || l.id === 'watchlist') return;
@@ -1826,6 +1941,16 @@ function bind() {
     if (e.target.closest('[data-repick]')) { pickOne(); return; }
     var pb = e.target.closest('[data-person]');
     if (pb) { openPerson(+pb.dataset.person, pb.dataset.pname); return; }
+    var cs = e.target.closest('[data-cursec]');
+    if (cs && CUR) {
+      var sec = cs.dataset.cursec, label = CUR.labels.sec[sec] || sec;
+      cs.disabled = true; cs.textContent = 'Eligiendo las pelis base…';
+      curSectionSeeds(sec, 6).then(function (seeds) {
+        if (!seeds.length) { toast('No encontré pelis de esa sección en TMDB.'); cs.disabled = false; cs.textContent = 'Armar festival: ' + label; return; }
+        createRadio(seeds, 'Festival ' + label);
+      }, function (err) { if (err && err.fatal) fatal(err); else toast(err.message); cs.disabled = false; cs.textContent = 'Armar festival: ' + label; });
+      return;
+    }
     var a = e.target.closest('[data-dact]');
     if (a) {
       var act = a.dataset.dact;
@@ -1853,6 +1978,9 @@ function bind() {
   $('#syncNow').addEventListener('click', connectFromForm);
   $('#syncOff').addEventListener('click', disconnectSync);
   $('#pairShow').addEventListener('click', showPair);
+  $('#inviteCopy').addEventListener('click', inviteCopy);
+  $('#inviteQr').addEventListener('click', inviteQr);
+  $('#inviteOmdb').addEventListener('change', resetInvite);
   $('#pairHide').addEventListener('click', hidePair);
   $('#exportBtn').addEventListener('click', exportUser);
   $('#importFile').addEventListener('change', function (e) { var f = e.target.files[0]; if (f) importFile(f); e.target.value = ''; });
@@ -1897,6 +2025,7 @@ function registerSW() {
 function boot() {
   applyTheme();
   readPairHash();
+  loadCuraduria();
   bind();
   renderRail();
   registerSW();
@@ -1904,6 +2033,6 @@ function boot() {
   start();
 }
 
-if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') window.__cartelera = { state: state, refresh: refresh, scoreFor: scoreFor, recommend: recommend, openReco: openReco, openPerson: openPerson, allSig: allSig, mergeUsers: mergeUsers, normUser: normUser, contentKey: contentKey, listKeys: listKeys, pairUrl: pairUrl, syncNow: syncNow };
+if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') window.__cartelera = { state: state, refresh: refresh, scoreFor: scoreFor, recommend: recommend, curFind: curFind, cur: function () { return CUR; }, inviteUrl: inviteUrl, openReco: openReco, openPerson: openPerson, allSig: allSig, mergeUsers: mergeUsers, normUser: normUser, contentKey: contentKey, listKeys: listKeys, pairUrl: pairUrl, syncNow: syncNow };
 boot();
 })();
