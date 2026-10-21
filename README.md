@@ -57,3 +57,11 @@ La configuración web de Firebase está en `app.js` (no es secreta). Quién pued
 ## Instalación
 
 Abierta desde el navegador de un celular, la app pide instalarse primero (en Android con un toque; en iPhone desde Compartir → Agregar a inicio). Se puede seguir en el navegador igual.
+
+## Estrellas
+
+1 **Mala** (no me gustó) · 2 **Decente** (no es para mí, pero no la pasé mal) · 3 **Buena** (la pasé bien; tiene defectos) · 4 **Excelente** (me encantó) · 5 **Increíble** (memorable, un clásico). Pasando el mouse o deslizando el dedo sobre las estrellas aparece qué significa cada una. Para las recomendaciones, 3 ya suma un poco, 4 y 5 suman fuerte, 2 resta un poco y 1 resta fuerte.
+
+## Personas
+
+Las fichas muestran dirección, guion, música y fotografía. Cada nombre abre su filmografía por rol y desde ahí se arma una **Retrospectiva** (su obra, lo mejor primero) o un **Festival en su onda** (arranca de sus mejores títulos y se completa con parecidos).

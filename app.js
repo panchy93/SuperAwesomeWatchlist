@@ -1038,6 +1038,22 @@ async function openDetail(it, pick) {
     if (state.detail && state.detail.k === it.k) { state.detail.error = e.message; renderDetail(); }
   }
 }
+/* escala de estrellas (pasar el dedo o el mouse muestra qué significa cada una) */
+var STAR_NAME = ['', 'Mala', 'Decente', 'Buena', 'Excelente', 'Increíble'];
+var STAR_TXT = ['', 'Mala: no me gustó', 'Decente: no es para mí, pero no la pasé mal', 'Buena: la pasé bien; tiene defectos, pero es buena', 'Excelente: me encantó, buenísima', 'Increíble: memorable, un clásico, un antes y un después'];
+function starHintText(n) { return n ? '<b>' + '★'.repeat(n) + ' ' + STAR_NAME[n] + '</b> · ' + esc(STAR_TXT[n].split(': ')[1]) : 'Tocá o deslizá el dedo sobre las estrellas para puntuar'; }
+function starPreview(n) {
+  var box = $('#myStars'), hint = $('#starHint'); if (!box) return;
+  var cur = +box.dataset.cur || 0, show = n == null ? cur : n;
+  box.classList.toggle('previewing', n != null);
+  $$('[data-star]', box).forEach(function (b) { b.classList.toggle('pre', +b.dataset.star <= show); });
+  if (hint) hint.innerHTML = starHintText(show);
+}
+function starAt(x) {
+  var box = $('#myStars'); if (!box) return 0;
+  var r = box.getBoundingClientRect(); if (!r.width) return 0;
+  return Math.max(1, Math.min(5, Math.ceil((x - r.left) / (r.width / 5))));
+}
 function duoRowHTML(it) {
   var c = duoComp(); if (!c) return '';
   var seen = compSeen(c, it.k), st = compStar(c, it.k), b = '';
@@ -1068,11 +1084,16 @@ function renderDetail() {
   if (full) {
     var crew = dig(full, 'credits.crew') || [], cast = (dig(full, 'credits.cast') || []).slice(0, 8);
     var dir = it.type === 'movie' ? crew.filter(function (c) { return c.job === 'Director'; }) : (full.created_by || []);
-    var wri = it.type === 'movie' ? crew.filter(function (c) { return c.job === 'Screenplay' || c.job === 'Writer'; }).slice(0, 3) : [];
+    var wri = crew.filter(function (c) { return c.job === 'Screenplay' || c.job === 'Writer' || (it.type === 'tv' && c.department === 'Writing'); }).slice(0, 3);
+    if (!wri.length) wri = crew.filter(function (c) { return c.job === 'Story' || c.job === 'Novel' || c.job === 'Author'; }).slice(0, 2);
+    var mus = crew.filter(function (c) { return CREW_ROLE(c) === 'mus'; }).slice(0, 2);
+    var dop = crew.filter(function (c) { return CREW_ROLE(c) === 'dop'; }).slice(0, 2);
     var pbtn = function (p) { return '<button class="plink" type="button" data-person="' + (+p.id) + '" data-pname="' + esc(p.name) + '">' + esc(p.name) + '</button>'; };
     var uniq = function (arr) { var s = {}; return arr.filter(function (p) { if (!p || !p.id || s[p.id]) return false; s[p.id] = 1; return true; }); };
     if (dir.length) people += '<dt>' + (it.type === 'movie' ? 'Dirección' : 'Creada por') + '</dt><dd>' + uniq(dir).map(pbtn).join(', ') + '</dd>';
     if (wri.length) people += '<dt>Guion</dt><dd>' + uniq(wri).map(pbtn).join(', ') + '</dd>';
+    if (mus.length) people += '<dt>Música</dt><dd>' + uniq(mus).map(pbtn).join(', ') + '</dd>';
+    if (dop.length) people += '<dt>Fotografía</dt><dd>' + uniq(dop).map(pbtn).join(', ') + '</dd>';
     if (cast.length) people += '<dt>Reparto</dt><dd>' + uniq(cast).map(pbtn).join(', ') + '</dd>';
   }
   var wtw = '', mineHere = false;
@@ -1100,7 +1121,7 @@ function renderDetail() {
   if (lite.imdb && mineHere) links.push('<a href="' + stremioHref(it.type, lite.imdb) + '">Stremio</a>');
   if (it.type === 'movie') links.push('<a href="https://letterboxd.com/tmdb/' + (+it.id) + '/"' + ext + '>Letterboxd</a>');
   var watch = inList('watchlist', it.k), seen = isSeen(it.k), stars = starOf(it.k), rctx = radioContext();
-  var starBtns = ''; for (var i = 1; i <= 5; i++) starBtns += '<button class="star' + (i <= stars ? ' on' : '') + '" type="button" data-star="' + i + '" aria-label="' + i + (i === 1 ? ' estrella' : ' estrellas') + '" aria-pressed="' + (i === stars) + '">' + ICON.star + '</button>';
+  var starBtns = ''; for (var i = 1; i <= 5; i++) starBtns += '<button class="star' + (i <= stars ? ' on' : '') + '" type="button" data-star="' + i + '" aria-label="' + i + (i === 1 ? ' estrella. ' : ' estrellas. ') + STAR_TXT[i] + '" title="' + STAR_TXT[i] + '" aria-pressed="' + (i === stars) + '">' + ICON.star + '</button>';
   var listChips = visibleLists().filter(function (l) { return l.id !== 'watchlist'; }).map(function (l) { return '<button class="chip" type="button" data-dlist="' + esc(l.id) + '" aria-pressed="' + isIn(l, it.k) + '">' + esc(l.name) + '</button>'; }).join('');
   var cf = curFind({ t: title, ot: orig, y: it.y, type: it.type }) || curFind(it), curHtml = '';
   if (cf) {
@@ -1128,8 +1149,8 @@ function renderDetail() {
         '<div class="actions">' +
           '<button class="btn" type="button" data-dact="watch" aria-pressed="' + watch + '">' + (watch ? 'En Mi lista' : 'Sumar a Mi lista') + '</button>' +
           '<button class="btn" type="button" data-dact="seen" aria-pressed="' + seen + '">' + (seen ? 'Vista' : 'Marcar como vista') + '</button>' +
-          '<span class="stars" role="group" aria-label="Tu puntaje" title="Tu puntaje: afina tus recomendaciones">' + starBtns + '</span>' +
-        '</div>' + duoRowHTML(it) +
+          '<span class="stars" id="myStars" role="group" aria-label="Tu puntaje" data-cur="' + stars + '">' + starBtns + '</span>' +
+        '</div>' + '<p class="star-hint" id="starHint" aria-live="polite">' + starHintText(stars) + '</p>' + duoRowHTML(it) +
         '<div class="actions-2">' +
           '<button class="btn" type="button" data-dact="reco">Más como esta</button>' +
           '<button class="btn" type="button" data-dact="radio">Armar festival</button>' +
@@ -1245,6 +1266,17 @@ async function loadAll(more) {
 }
 
 /* ---------- personas ---------- */
+/* rol de un crédito de equipo: dirección, guion, música o fotografía */
+function CREW_ROLE(c) {
+  var j = String(c.job || ''), d = String(c.department || '');
+  if (j === 'Director' || j === 'Creator') return 'dir';
+  if (d === 'Writing') return 'wri';
+  if (/Original Music Composer|^Music$|^Composer$|Music Director|Original Series Composer/i.test(j)) return 'mus';
+  if (/Director of Photography|Cinematograph/i.test(j)) return 'dop';
+  return null;
+}
+var ROLE_LABEL = { dir: 'Dirección', act: 'Actuación', wri: 'Guion', mus: 'Música', dop: 'Fotografía' };
+var ROLES = ['dir', 'act', 'wri', 'mus', 'dop'];
 function loadPersonCredits(id) {
   if (state.personData[id]) return Promise.resolve(state.personData[id]);
   if (state.personLoading[id]) return state.personLoading[id];
@@ -1257,13 +1289,34 @@ function loadPersonCredits(id) {
       (roles[k] = roles[k] || {})[role] = 1;
     };
     (cc.cast || []).forEach(function (c) { add(c, 'act'); });
-    (cc.crew || []).forEach(function (c) { if (c.job === 'Director' || c.job === 'Creator') add(c, 'dir'); else if (c.department === 'Writing') add(c, 'wri'); });
+    (cc.crew || []).forEach(function (c) { var r = CREW_ROLE(c); if (r) add(c, r); });
     var data = { items: Array.from(items.values()), keys: new Set(items.keys()), roles: roles };
     state.personData[id] = data; delete state.personLoading[id];
     return data;
   }, function (e) { delete state.personLoading[id]; throw e; });
   state.personLoading[id] = pr;
   return pr;
+}
+/* festivales por persona: la retrospectiva es su obra en ese rol (lo mejor primero);
+   "en su onda" arranca de sus mejores títulos y se completa con parecidos */
+function personBest(sp) {
+  var role = sp.tab, items = (sp.tabs[role] || []).filter(function (it) { return !(state.f.noIndia && isIndian(it)); });
+  var q = function (it) { return (it.v || 0) * Math.log10(10 + (it.vc || 0)); };
+  return items.filter(function (it) { return (it.vc || 0) >= 15; }).sort(function (a, b) { return q(b) - q(a); }).concat(items.filter(function (it) { return (it.vc || 0) < 15; }));
+}
+function personFestival(sp, kind) {
+  var best = personBest(sp), who = sp.title, role = ROLE_LABEL[sp.tab] || '';
+  if (!best.length) { toast('No encontré títulos de ' + who + ' para armarlo.'); return; }
+  if (kind === 'onda') { createRadio(best.slice(0, 6), ('Festival ' + who).slice(0, 40)); return; }
+  var name = ('Retrospectiva ' + who).slice(0, 40);
+  var ex = visibleLists().filter(function (l) { return l.name === name; })[0];
+  var l = ex || createList(name); if (!l) return;
+  var t = now(), keep = best.slice(0, 40);
+  keep.forEach(function (it, i) { if (!isIn(l, it.k)) { l.adds[it.k] = t - i; state.user.items[it.k] = snapshot(it); } });
+  touchUser();
+  state.special = null; state.ui.view = 'lists'; state.ui.list = l.id; state.ui.sortLists = 'added'; state.listEdit = null;
+  refresh(); window.scrollTo(0, 0);
+  toast((ex ? 'Actualicé la ' : 'Armé la ') + 'retrospectiva: ' + keep.length + ' títulos de ' + who + (role ? ' (' + role.toLowerCase() + ')' : '') + ', lo mejor primero.');
 }
 async function openPerson(id, name) {
   closeDialog($('#dlgDetail')); closeMenu(); closeRail();
@@ -1275,11 +1328,11 @@ async function openPerson(id, name) {
     if (state.special !== sp) return;
     var info = res[0], data = res[1];
     sp.title = info.name || name; sp.dept = info.known_for_department || '';
-    var tabs = { dir: [], act: [], wri: [] };
-    data.items.forEach(function (it) { var r = data.roles[it.k] || {}; ['dir', 'act', 'wri'].forEach(function (t) { if (r[t]) tabs[t].push(fromCatalog(it)); }); });
+    var tabs = { dir: [], act: [], wri: [], mus: [], dop: [] };
+    data.items.forEach(function (it) { var r = data.roles[it.k] || {}; ROLES.forEach(function (t) { if (r[t]) tabs[t].push(fromCatalog(it)); }); });
     sp.tabs = tabs;
-    var pref = sp.dept === 'Directing' ? 'dir' : sp.dept === 'Writing' ? 'wri' : 'act';
-    sp.tab = tabs[pref].length ? pref : (['dir', 'act', 'wri'].filter(function (t) { return tabs[t].length; })[0] || 'act');
+    var pref = { Directing: 'dir', Writing: 'wri', Sound: 'mus', Camera: 'dop' }[sp.dept] || 'act';
+    sp.tab = tabs[pref].length ? pref : (ROLES.filter(function (t) { return tabs[t].length; })[0] || 'act');
     sp.items = tabs[sp.tab]; sp.loading = false;
     refresh();
     wantDetails(sp.items.slice(0, 150), 'lo');
@@ -1297,7 +1350,7 @@ function addPersonFilter(id, name) {
   refresh();
   loadPersonCredits(id).then(function () { refresh(); }, function (e) { if (e.fatal) fatal(e); else toast(e.message); });
 }
-var DEPT = { Directing: 'Dirección', Acting: 'Actuación', Writing: 'Guion', Production: 'Producción', Camera: 'Fotografía', Editing: 'Montaje', Sound: 'Sonido', Art: 'Arte' };
+var DEPT = { Directing: 'Dirección', Acting: 'Actuación', Writing: 'Guion', Production: 'Producción', Camera: 'Fotografía', Editing: 'Montaje', Sound: 'Música y sonido', Art: 'Arte' };
 var personSearch = debounce(async function (q) {
   var box = $('#personAc');
   if (q.length < 2) { box.hidden = true; return; }
@@ -1319,10 +1372,10 @@ function renderSpecialBar() {
   bar.hidden = !sp || sp.kind === 'search' || !!sp.error;
   if (bar.hidden) { bar.innerHTML = ''; return; }
   if (sp.kind === 'person') {
-    var labels = { dir: 'Dirección', act: 'Actuación', wri: 'Guion' };
-    var tabs = sp.tabs ? ['dir', 'act', 'wri'].filter(function (t) { return sp.tabs[t].length; }) : [];
-    bar.innerHTML = (tabs.length > 1 ? '<div class="seg" role="group" aria-label="Rol">' + tabs.map(function (t) { return '<button type="button" data-ptab="' + t + '" aria-pressed="' + (sp.tab === t) + '">' + labels[t] + ' <span class="n">' + sp.tabs[t].length + '</span></button>'; }).join('') + '</div>' : '') +
-      '<span class="grow"></span>' + (sp.loading ? '' : '<button class="btn" type="button" data-pfilter>Filtrar mi cartelera por ' + esc(sp.title) + '</button>');
+    var tabs = sp.tabs ? ROLES.filter(function (t) { return sp.tabs[t].length; }) : [];
+    bar.innerHTML = (tabs.length > 1 ? '<div class="seg seg-wrap" role="group" aria-label="Rol">' + tabs.map(function (t) { return '<button type="button" data-ptab="' + t + '" aria-pressed="' + (sp.tab === t) + '">' + ROLE_LABEL[t] + ' <span class="n">' + sp.tabs[t].length + '</span></button>'; }).join('') + '</div>' :
+      tabs.length === 1 ? '<p class="seeds">' + ROLE_LABEL[tabs[0]] + ' · ' + sp.tabs[tabs[0]].length + (sp.tabs[tabs[0]].length === 1 ? ' título' : ' títulos') + '</p>' : '') +
+      '<span class="grow"></span>' + (sp.loading ? '' : '<button class="btn btn-accent" type="button" data-pfest="retro">' + ICON.ticket + 'Retrospectiva</button><button class="btn" type="button" data-pfest="onda">Festival en su onda</button><button class="btn" type="button" data-pfilter>Filtrar mi cartelera por ' + esc(sp.title) + '</button>');
   } else if (sp.kind === 'reco') {
     bar.innerHTML = '<p class="seeds">A partir de ' + sp.seeds.map(function (s) { return '<b>' + esc(s.t) + '</b>'; }).join(', ') + '</p><span class="grow"></span>' +
       (sp.loading ? '' : '<button class="btn btn-accent" type="button" data-mkradio>Armar festival</button>');
@@ -1657,7 +1710,8 @@ async function openReco(seeds, opts) {
    (y de cada festival) según los géneros que te gustan, el parecido con lo que puntuaste
    alto o bajo (por la curaduría) y los directores de lo que te gustó. Pesa más cuantas
    más pelis puntuaste. */
-var TASTE_W = [0, -1, -0.6, 0, 0.6, 1];
+/* 1 mala, 2 decente, 3 buena, 4 excelente, 5 increíble */
+var TASTE_W = [0, -1, -0.3, 0.35, 0.75, 1];
 /* ---------- de a dos ----------
    Gusto de otra persona guardado en este dispositivo (llega por un link que genera su
    WatchListo, o se arma a mano marcando en cada ficha lo que vio). Con el modo "de a dos"
@@ -2234,7 +2288,7 @@ var GUIDE_GROUP_GENRES = {
 var GUIDE_ERAS = { any: {}, classic: { to: 1979 }, mid: { from: 1980, to: 1999 }, modern: { from: 2000 } };
 var GUIDE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 9.5h7l3.5-3v11l-3.5-3h-7z"/><path d="M17 8l3-2M17.5 12H21M17 16l3 2"/></svg>';
 function guideNew() { return { at: Date.now(), step: 'start', type: 'movie', mood: null, group: null, round: 0, T: {}, used: [], picked: [], era: 'any', rt: 0, where: state.ui.source === 'all' ? 'all' : 'mine', blind: false, salt: String(Math.random()), hist: [], res: null, shown: 0 }; }
-function guideSnap(g) { return JSON.stringify({ step: g.step, type: g.type, mood: g.mood, group: g.group, round: g.round, T: g.T, used: g.used, picked: g.picked, era: g.era, rt: g.rt, where: g.where, blind: g.blind }); }
+function guideSnap(g) { return JSON.stringify({ step: g.step, type: g.type, mood: g.mood, group: g.group, round: g.round, skips: g.skips || 0, T: g.T, used: g.used, picked: g.picked, era: g.era, rt: g.rt, where: g.where, blind: g.blind }); }
 function guidePush() { var g = state.guide; g.hist.push(guideSnap(g)); }
 function guideBack() { var g = state.guide, h = g.hist.pop(); if (!h) return; Object.assign(g, JSON.parse(h), { res: null, shown: 0 }); renderGuide(); }
 function guideMood(k) { return GUIDE_MOODS.filter(function (m) { return m.k === k; })[0] || null; }
@@ -2254,11 +2308,23 @@ function guideAdd(T, f, w) { var L = guideLabels(f); Object.keys(L).forEach(func
 function guideFit(T, f) { var L = guideLabels(f), ks = Object.keys(L), s = 0; ks.forEach(function (k) { s += (T[k] || 0) * L[k]; }); return s / Math.sqrt(ks.length || 1); }
 function guideFame(f) { return Math.min(1, (CUR.rel.get(f.id) || new Set()).size / 8); }
 function guideJit(g, id) { var h = 7, s = id + g.salt; for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return Math.abs(h % 1000) / 1000; }
-/* dos títulos conocidos, bien distintos entre sí, entre los que mejor encajan hasta ahora */
+/* títulos de la curaduría que ya conocés: los que viste (y cuánto te gustaron) y los que tenés guardados en listas */
+function guideKnown() {
+  var out = new Map(); if (!CUR) return out;
+  mySignals().forEach(function (s) { var f = curFind(s.it); if (f) out.set(f.id, { seen: true, n: s.n, who: 'me' }); });
+  var c = duoComp();
+  if (c) Object.keys(c.seen).concat(Object.keys(c.stars)).forEach(function (k) { var it = c.items[k] || state.user.items[k], f = it && curFind(it); if (f && !out.has(f.id)) out.set(f.id, { seen: true, n: c.stars[k] || 0, who: 'them' }); });
+  visibleLists().slice().sort(function (a, b) { return isRadio(a) - isRadio(b); }).forEach(function (l) { listKeys(l).forEach(function (k) { var f = curFind(resolveItem(k)); if (f && !out.has(f.id)) out.set(f.id, { list: l.name, fest: isRadio(l) }); }); });
+  return out;
+}
+function knownBonus(x) { if (!x) return 0; if (x.seen) return x.n >= 4 ? (x.n === 5 ? 1.3 : 1.1) : x.n === 3 ? 0.6 : x.n ? 0.15 : 0.45; return x.list ? (x.fest ? 0.5 : 0.85) : 0; }
+/* dos títulos bien distintos entre sí, entre los que mejor encajan; primero los que ya viste y te gustaron
+   (sirven de vara para comparar) y los que tenés en alguna lista (de paso no se te olvidan) */
 function guidePair(g) {
   var films = guidePool(g).filter(function (f) { return g.used.indexOf(f.id) < 0; });
   if (films.length < 2) return null;
-  var top = films.map(function (f) { return { f: f, s: guideFit(g.T, f) + 0.6 * guideFame(f) + 0.3 * guideJit(g, f.id) }; })
+  var K = g._known || (g._known = guideKnown());
+  var top = films.map(function (f) { return { f: f, s: guideFit(g.T, f) + 0.6 * guideFame(f) + 0.3 * guideJit(g, f.id) + knownBonus(K.get(f.id)) }; })
     .sort(function (a, b) { return b.s - a.s; }).slice(0, 14);
   var best = null, bs = -Infinity;
   for (var i = 0; i < top.length; i++) for (var j = i + 1; j < top.length; j++) {
@@ -2272,12 +2338,12 @@ function guidePair(g) {
 function guideDuel(v) {
   var g = state.guide, pair = g.pair; if (!pair) return;
   guidePush();
+  g.used.push(pair[0].id, pair[1].id);
   if (v === 'a' || v === 'b') {
     var win = v === 'a' ? pair[0] : pair[1], lose = v === 'a' ? pair[1] : pair[0];
     guideAdd(g.T, win, 1); guideAdd(g.T, lose, -0.5); g.picked.push(win.id);
-  }
-  g.used.push(pair[0].id, pair[1].id);
-  g.round++;
+    g.round++; g.skips = 0;
+  } else if ((g.skips = (g.skips || 0) + 1) > 2) { g.round++; g.skips = 0; }
   g.step = g.round >= 3 ? 'details' : 'duel';
   renderGuide(); $('#dlgGuide').scrollTop = 0;
 }
@@ -2299,10 +2365,14 @@ function guideRow(label, key, opts, cur) {
   }).join('') + '</div></div>';
 }
 function guideFilm(f, v) {
-  var c = curMap[f.id], p = c && !c.none ? safePath(c.p) : null, L = CUR.labels;
-  var desc = [f.y, L.sub[f.sub[0]], L.ton[f.ton[0]]].filter(Boolean).join(' · ');
-  return '<button class="g-film" type="button" data-g="duel" data-v="' + v + '"><span class="g-poster">' + (p ? '<img alt="" src="' + IMG + 'w342' + p + '">' : '<span class="noposter">' + esc(curShownTitle(f)) + '</span>') + '</span>' +
-    '<b>' + esc(curShownTitle(f)) + '</b><span>' + esc(desc) + '</span></button>';
+  var c = curMap[f.id], p = c && !c.none ? safePath(c.p) : null, L = CUR.labels, g = state.guide;
+  var x = g && g._known ? g._known.get(f.id) : null, dc = duoComp();
+  var badge = !x ? '' : x.seen ? (x.who === 'them' && dc ? esc(dc.name) + ' la vio' : 'La viste') + (x.n ? ' · ' + '★'.repeat(x.n) : '') : (x.fest ? 'En tu festival «' : 'En tu lista «') + esc(x.list) + '»';
+  var tags = f.sub.slice(0, 2).map(function (t) { return L.sub[t]; }).concat(f.ton.slice(0, 2).map(function (t) { return L.ton[t]; }), f.tem.slice(0, 2).map(function (t) { return L.tem[t]; })).filter(Boolean);
+  return '<button class="g-film" type="button" data-g="duel" data-v="' + v + '"><span class="g-poster">' + (p ? '<img alt="" src="' + IMG + 'w342' + p + '">' : '<span class="noposter">' + esc(curShownTitle(f)) + '</span>') +
+    (badge ? '<span class="g-badge">' + badge + '</span>' : '') + '</span>' +
+    '<b>' + esc(curShownTitle(f)) + '</b><span class="g-meta">' + esc([f.y, L.sec[f.sec]].filter(Boolean).join(' · ')) + '</span>' +
+    '<span class="g-tags">' + tags.map(function (t) { return '<span class="g-tag">' + esc(t) + '</span>'; }).join('') + '</span></button>';
 }
 function guideGroups(g) {
   var m = guideMood(g.mood), tons = m ? m.ton : [];
@@ -2351,7 +2421,7 @@ function renderGuide() {
     var lead = ['Te pongo dos.', 'Ahora estas.', 'Última y te dejo tranquilo.'][Math.min(g.round, 2)];
     say = esc(lead) + ' ¿Más <em>' + esc(curShownTitle(pair[0])) + '</em> o más <em>' + esc(curShownTitle(pair[1])) + '</em>?';
     main = '<div class="g-duel">' + guideFilm(pair[0], 'a') + '<span class="g-vs">o</span>' + guideFilm(pair[1], 'b') + '</div>' +
-      '<div class="g-alts g-center"><button class="g-alt" type="button" data-g="duel" data-v="none">Me da igual, o no conozco ninguna</button></div>';
+      '<div class="g-alts g-center"><button class="g-alt" type="button" data-g="duel" data-v="none">Ninguna me convence: mostrame otras dos</button></div>';
   } else if (g.step === 'details') {
     say = g.blind ? 'Dale, te elijo yo. Decime nomás un par de cosas.' : 'Tres detalles y te acomodo.';
     main = '<div class="g-rows">' +
@@ -2439,8 +2509,7 @@ async function guideCompute(g, progress) {
       });
     }
   }
-  if (!seeds.length) return { items: [], seeds: [], byK: new Map() };
-  var recs = await recommend(seeds, function (m) { progress('Buscando parecidas: ' + m); });
+  var recs = seeds.length ? await recommend(seeds, function (m) { progress('Buscando parecidas: ' + m); }) : [];
   var cands = new Map(), maxM = 0;
   recs.forEach(function (r) { if (r.match > maxM) maxM = r.match; });
   recs.forEach(function (r) { cands.set(r.it.k, { it: r.it, base: maxM ? r.match / maxM : 0.5, why: r.why }); });
@@ -2449,7 +2518,11 @@ async function guideCompute(g, progress) {
     var dres = await Promise.all(direct.map(function (f) { return curResolve(f).catch(function () { return null; }); }));
     dres.forEach(function (it) { if (it && !cands.has(it.k)) cands.set(it.k, { it: fromCatalog(Object.assign({ s: [] }, it)), base: 0.55, why: '' }); });
   }
-  var usedKeys = new Set(g.used.map(function (id) { var c = curMap[id]; return c && c.k; }).filter(Boolean));
+  /* los que perdieron o se saltearon no vuelven; los que elegiste en un duelo y no viste sí (y suman) */
+  var usedKeys = new Set(g.used.filter(function (id) { return g.picked.indexOf(id) < 0; }).map(function (id) { var c = curMap[id]; return c && c.k; }).filter(Boolean));
+  var pickedKeys = new Set(g.picked.map(function (id) { var c = curMap[id]; return c && c.k; }).filter(Boolean));
+  pickedKeys.forEach(function (k) { if (!cands.has(k) && !seenNow(k)) { var sn = curMap[g.picked.filter(function (id) { return curMap[id] && curMap[id].k === k; })[0]]; if (sn) cands.set(k, { it: fromCatalog(Object.assign({ s: [] }, sn)), base: 0.9, why: '' }); } });
+  var inList = new Map(); visibleLists().forEach(function (l) { listKeys(l).forEach(function (k) { if (!inList.has(k)) inList.set(k, l.name); }); });
   var out = [];
   cands.forEach(function (c) {
     var it = c.it;
@@ -2464,6 +2537,8 @@ async function guideCompute(g, progress) {
     var q = Math.max(0, Math.min(1, ((it.v || 0) - 5.5) / 3)) * Math.min(1, (it.vc || 0) / 300);
     var r = { it: it, cf: cf, why: c.why, score: (g.blind ? 0.8 : 0.5) * c.base + (g.blind ? 0.1 : 0.42) * fit + 0.08 * q };
     r.why = guideWhy(g, r);
+    if (pickedKeys.has(it.k)) { r.score += 0.15; r.why = 'La elegiste en un duelo y todavía no la viste' + (r.why ? ' · ' + r.why : ''); }
+    else if (inList.has(it.k)) { r.score += 0.06; r.why = 'Está en tu lista «' + inList.get(it.k) + '»' + (r.why ? ' · ' + r.why : ''); }
     out.push(r);
   });
   out.sort(function (a, b) { return b.score - a.score; });
@@ -2481,6 +2556,16 @@ async function guideCompute(g, progress) {
       });
     }
   } else { final = out.slice(0, 60); wantDetails(final.slice(0, 9).map(function (r) { return r.it; }), 'hi'); }
+  /* si con todo eso quedó muy poco, se completa con lo mejor de ese género que tenés disponible */
+  if (final.length < 3) {
+    var have = new Set(final.map(function (r) { return r.it.k; })), cat = state.catalogs[g.type];
+    var extra = (cat ? cat.items : []).filter(function (it) {
+      var gi = it.g || [];
+      return !have.has(it.k) && !seenNow(it.k) && !lowNow(it.k) && inEra(it.y) && !usedKeys.has(it.k) && !(state.f.noIndia && isIndian(it)) &&
+        (!gg || !gg.length || gi.some(function (x) { return gg.indexOf(x) >= 0; })) && (!secs || gg);
+    }).sort(function (a, b) { return (b.v || 0) * Math.log10(10 + (b.vc || 0)) - (a.v || 0) * Math.log10(10 + (a.vc || 0)); }).slice(0, 12 - final.length);
+    extra.forEach(function (it) { final.push({ it: it, cf: curFind(it), score: 0, why: g.group ? 'De lo mejor de ' + g.group.toLowerCase() + ' en tus servicios' : 'De lo mejor que tenés disponible' }); });
+  }
   var byK = new Map(); final.forEach(function (r) { byK.set(r.it.k, r.it); });
   return { items: final, seeds: seeds, byK: byK };
 }
@@ -3380,6 +3465,8 @@ function bind() {
     var sp = state.special; if (!sp) return;
     var tab = e.target.closest('[data-ptab]');
     if (tab && sp.tabs) { sp.tab = tab.dataset.ptab; sp.items = sp.tabs[sp.tab]; refresh(); wantDetails(sp.items.slice(0, 150), 'lo'); return; }
+    var pf = e.target.closest('[data-pfest]');
+    if (pf && sp.tabs) { personFestival(sp, pf.dataset.pfest); return; }
     if (e.target.closest('[data-pfilter]')) { var id = sp.id, name = sp.title; state.special = null; state.ui.view = 'catalog'; addPersonFilter(id, name); renderRail(); toast('Mostrando lo que hizo ' + name + '. Lo sacás desde Filtros.'); return; }
     if (e.target.closest('[data-mkradio]')) { createRadio(sp.seeds, sp.festName); }
   });
@@ -3549,11 +3636,35 @@ function bind() {
     var cst = e.target.closest('[data-cstar]');
     if (cst) { compSetStar(it, +cst.dataset.cstar); renderDetail(); return; }
     var st = e.target.closest('[data-star]');
+    if (st && Date.now() - (state.starTouchAt || 0) < 700) return;
     if (st) { var n = +st.dataset.star; if (setStar(it, starOf(it.k) === n ? 0 : n)) toast('Puntuada y marcada como vista.'); renderDetail(); updateCard(it.k); return; }
     var dl = e.target.closest('[data-dlist]');
     if (dl) { toggleList(dl.dataset.dlist, it); renderDetail(); if (state.ui.view === 'lists') refreshSoon(); }
   });
   dd.addEventListener('close', function () { state.detail = null; });
+  dd.addEventListener('mouseover', function (e) { var b = e.target.closest('#myStars [data-star]'); if (b) starPreview(+b.dataset.star); });
+  dd.addEventListener('mouseout', function (e) { if (e.target.closest('#myStars') && !(e.relatedTarget && e.relatedTarget.closest && e.relatedTarget.closest('#myStars'))) starPreview(null); });
+  /* con el dedo: se desliza sobre las estrellas viendo qué significa cada una y se suelta para puntuar */
+  dd.addEventListener('pointerdown', function (e) {
+    if (e.pointerType !== 'touch' || !e.target.closest('#myStars')) return;
+    state.starDrag = { n: starAt(e.clientX), moved: false };
+    starPreview(state.starDrag.n);
+  });
+  dd.addEventListener('pointermove', function (e) {
+    var g = state.starDrag; if (!g || e.pointerType !== 'touch') return;
+    var n = starAt(e.clientX); if (n !== g.n) { g.n = n; g.moved = true; starPreview(n); }
+  });
+  var starEnd = function (e) {
+    var g = state.starDrag; if (!g) return; state.starDrag = null;
+    if (e.type === 'pointercancel') { starPreview(null); return; }
+    var D = state.detail; if (!D) return;
+    var cur = starOf(D.it.k), n = !g.moved && g.n === cur ? 0 : g.n;
+    state.starTouchAt = Date.now();
+    if (setStar(D.it, n)) toast('Puntuada y marcada como vista.');
+    renderDetail(); updateCard(D.it.k);
+  };
+  dd.addEventListener('pointerup', starEnd);
+  dd.addEventListener('pointercancel', starEnd);
 
   /* festivales */
   $('#openFest').addEventListener('click', openFest);

@@ -1,10 +1,10 @@
 /* WatchListo: service worker. Solo maneja archivos propios del sitio;
    nunca toca pedidos a TMDB, OMDb ni GitHub. */
-const CACHE = 'cartelera-v12';
+const CACHE = 'cartelera-v13';
 const ASSETS = [
   './', './index.html', './styles.css', './app.js', './qr.js', './manifest.webmanifest', './curaduria.json',
   './icons/icon-192.png', './icons/icon-512.png', './icons/maskable-512.png',
-  './icons/apple-touch-icon.png', './icons/favicon-64.png'
+  './icons/apple-touch-icon.png', './icons/favicon-32.png', './icons/favicon-64.png'
 ];
 
 self.addEventListener('install', (e) => {
