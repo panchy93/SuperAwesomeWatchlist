@@ -511,6 +511,7 @@ dialog[open].fallback{position:fixed;top:14px;left:0;right:0;margin:0 auto;z-ind
 .cloud-card small{color:var(--muted);font-size:12.5px;line-height:1.4}
 .cloud-card.on{border-color:var(--ok)}
 .cloud-card.warn{border-color:var(--danger)}
+.cloud-err{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px!important;word-break:break-word}
 .cloud-dot{width:10px;height:10px;border-radius:50%;background:var(--ok);flex:none}
 .cloud-dot.busy{background:var(--accent);animation:pulse 1s ease-in-out infinite alternate}
 @keyframes pulse{from{opacity:.35}to{opacity:1}}

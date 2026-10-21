@@ -2715,7 +2715,8 @@ async function onCloudUser(u) {
   CLOUD.status = 'checking'; CLOUD.admin = u.email === ADMIN_EMAIL; renderCloudUI();
   var keys;
   try { keys = await CLOUD.api.get('config/keys'); }
-  catch (e) { CLOUD.status = isDenied(e) ? 'denied' : 'error'; renderCloudUI(); return; }
+  catch (e) { CLOUD.lastErr = String((e && e.code) || '') + (e && e.message ? ': ' + String(e.message).slice(0, 200) : ''); CLOUD.status = isDenied(e) ? 'denied' : 'error'; renderCloudUI(); return; }
+  CLOUD.lastErr = '';
   CLOUD.status = 'in';
   await cloudApplyKeys(keys);
   await cloudSyncModel();
@@ -2998,8 +2999,10 @@ function cloudCardHTML() {
   var st = CLOUD.status, u = CLOUD.user;
   if (st === 'in' && u) return '<div class="cloud-card on"><span class="cloud-dot"></span><div><b>Conectado con Google</b><small>' + esc(u.email) + ' · tus datos se guardan en tu cuenta</small></div><button class="btn btn-ghost" type="button" data-cloud="out">Salir</button></div>';
   if (st === 'checking') return '<div class="cloud-card"><span class="cloud-dot busy"></span><div><b>Conectando con tu cuenta…</b></div></div>';
-  if (st === 'denied') return '<div class="cloud-card warn"><div><b>Tu cuenta todavía no está invitada</b><small>' + esc(u ? u.email : '') + '. Pedile a quien te pasó la app que sume ese mail.</small></div><button class="btn" type="button" data-cloud="switch">Usar otra cuenta</button></div>';
-  if (st === 'error') return '<div class="cloud-card warn"><div><b>No pude conectar con tu cuenta</b><small>Puede ser la conexión. Lo de este dispositivo sigue funcionando.</small></div><button class="btn" type="button" data-cloud="in">Reintentar</button></div>';
+  var det = CLOUD.lastErr ? '<small class="cloud-err">Detalle: ' + esc(CLOUD.lastErr) + '</small>' : '';
+  if (st === 'denied' && CLOUD.admin) return '<div class="cloud-card warn"><div><b>Firestore rechazó el acceso</b><small>' + esc(u ? u.email : '') + ' es la cuenta de administrador, así que no es un tema de invitación: Firestore no tiene publicadas las reglas de WatchListo (o el publicado falló). Revisá Firestore → Reglas, pegá el archivo completo, tocá Publicar, esperá un minuto y tocá Reintentar.</small>' + det + '</div><button class="btn btn-accent" type="button" data-cloud="retry">Reintentar</button></div>';
+  if (st === 'denied') return '<div class="cloud-card warn"><div><b>Tu cuenta todavía no está invitada</b><small>' + esc(u ? u.email : '') + '. Pedile a quien te pasó la app que sume ese mail.</small>' + det + '</div><button class="btn" type="button" data-cloud="retry">Reintentar</button><button class="btn btn-ghost" type="button" data-cloud="switch">Usar otra cuenta</button></div>';
+  if (st === 'error') return '<div class="cloud-card warn"><div><b>No pude conectar con tu cuenta</b><small>Puede ser la conexión o que la base de Firestore no esté creada. Lo de este dispositivo sigue funcionando.</small>' + det + '</div><button class="btn" type="button" data-cloud="' + (u ? 'retry' : 'in') + '">Reintentar</button></div>';
   return '<div class="cloud-card"><div><b>Guardá todo en tu cuenta</b><small>Entrá con Google para tener tus listas en cualquier dispositivo, watch buddies y listas compartidas. Por ahora es solo por invitación.</small></div><button class="btn btn-accent" type="button" data-cloud="in">Entrar con Google</button></div>';
 }
 function renderCloudUI() {
@@ -3011,6 +3014,7 @@ function renderCloudUI() {
 }
 function cloudAct(act, btn) {
   if (act === 'in') { cloudSignIn(); return; }
+  if (act === 'retry') { if (CLOUD.user) { var u = CLOUD.user; onCloudUser(u).catch(function (e) { CLOUD.lastErr = String((e && (e.code || e.message)) || e); CLOUD.status = 'error'; renderCloudUI(); }); } else cloudSignIn(); return; }
   if (act === 'out' || act === 'switch') { cloudSignOut().then(function () { if (act === 'switch') cloudSignIn(); }); return; }
 }
 
