@@ -684,7 +684,7 @@ function stremioLangs(r) {
    JustWatch no deja que otras páginas lo consulten desde el navegador, así que se le pregunta a
    un Worker propio (tools/justwatch-worker.js) que solo le responde a esta página. Se pide al abrir
    una ficha, y la respuesta queda guardada unos días en el dispositivo. */
-var JW_PROXY = '';
+var JW_PROXY = 'https://watchlisto-jw.pfiguerero.workers.dev';
 var JW_LANG_RE = /^[a-z]{2,3}(-[A-Za-z0-9]{2,4})?$/, JW_TECH_RE = /^[A-Z0-9_]{2,30}$/;
 var JW_LANG = { es: 'español', en: 'inglés', pt: 'portugués', fr: 'francés', it: 'italiano', de: 'alemán', ja: 'japonés', ko: 'coreano', zh: 'chino', cmn: 'chino', yue: 'cantonés', hi: 'hindi', ru: 'ruso', pl: 'polaco', nl: 'neerlandés', sv: 'sueco', da: 'danés', no: 'noruego', nb: 'noruego', fi: 'finlandés', tr: 'turco', ar: 'árabe', he: 'hebreo', th: 'tailandés', id: 'indonesio', ms: 'malayo', cs: 'checo', hu: 'húngaro', ro: 'rumano', el: 'griego', uk: 'ucraniano', ca: 'catalán', eu: 'euskera', gl: 'gallego', ta: 'tamil', te: 'telugu', vi: 'vietnamita', fil: 'filipino', tl: 'tagalo', bg: 'búlgaro', hr: 'croata', sr: 'serbio', sk: 'eslovaco', sl: 'esloveno', lt: 'lituano', lv: 'letón', et: 'estonio', is: 'islandés', fa: 'persa', ur: 'urdu', bn: 'bengalí' };
 function jwLangName(c) {
