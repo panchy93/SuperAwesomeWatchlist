@@ -3526,7 +3526,17 @@ async function gh(path, opts) {
   try { res = await fetch('https://api.github.com' + path, { method: opts.method || 'GET', headers: headers, body: opts.body, credentials: 'omit', referrerPolicy: 'no-referrer', cache: 'no-store' }); }
   catch (e) { throw AppError('gh-net', 'Sin conexión con GitHub. Tus cambios quedan guardados y se suben cuando vuelva la conexión.'); }
   if (res.status === 401) throw AppError('gh-auth', 'GitHub rechazó el token. Puede estar vencido o mal copiado.');
-  if (res.status === 403) throw AppError('gh-perm', 'El token no tiene permiso sobre Gists. Revisá que tenga Gists: Read and write.');
+  if (res.status === 403 || res.status === 429) {
+    /* 403 puede ser falta de permiso o que GitHub frenó por exceso de pedidos: se distinguen */
+    var why = ''; try { why = String((await res.json()).message || ''); } catch (e) {}
+    why = why.replace(/[^\w .,:;'()\/-]/g, '').slice(0, 140);
+    var left = res.headers.get('x-ratelimit-remaining'), wait = +res.headers.get('retry-after') || 0, reset = +res.headers.get('x-ratelimit-reset') || 0;
+    if (res.status === 429 || left === '0' || /rate limit/i.test(why)) {
+      var e2 = AppError('gh-rate', 'GitHub frenó la sincronización un rato por exceso de cambios seguidos. Se reintenta sola; tus cambios quedan guardados.');
+      e2.retryIn = Math.min(15 * 60e3, Math.max(60e3, wait ? wait * 1000 : reset ? reset * 1000 - Date.now() : 120e3)); throw e2;
+    }
+    throw AppError('gh-perm', 'GitHub no deja que este token use Gists. Revisá que tenga Gists: Read and write.' + (why ? ' Detalle: ' + why : ''));
+  }
   if (res.status === 404) throw AppError('gh-404', 'No encontré el Gist de WatchListo con este token.');
   if (!res.ok) throw AppError('gh', 'GitHub respondió con error ' + res.status + '.');
   return res.json();
@@ -3550,7 +3560,10 @@ function syncNow(opts) {
   syncChain = syncChain.then(run, run);
   return syncChain;
 }
-var syncSoon = debounce(function () { if (state.settings.ghToken) syncNow({ silent: true }); }, 1500);
+/* con la cuenta de Google activa, el Gist es un respaldo: se sube con menos apuro */
+var syncSoonFast = debounce(function () { if (state.settings.ghToken) syncNow({ silent: true }); }, 6000);
+var syncSoonSlow = debounce(function () { if (state.settings.ghToken) syncNow({ silent: true }); }, 45000);
+function syncSoon() { if (typeof cloudIn === 'function' && cloudIn()) syncSoonSlow(); else syncSoonFast(); }
 async function doSync(opts) {
   if (!state.settings.ghToken) return;
   if (opts.silent && state.sync.blocked) return;
@@ -3584,6 +3597,7 @@ async function doSync(opts) {
     $('#syncOff').hidden = false;
   } catch (e) {
     if (e.code === 'gh-auth' || e.code === 'gh-perm') state.sync.blocked = true;
+    if (e.code === 'gh-rate' && !state.sync.retryT) state.sync.retryT = setTimeout(function () { state.sync.retryT = null; syncNow({ silent: true }); }, e.retryIn);
     setSync('err', e.message);
     if (!opts.silent) toast(e.message);
   }
@@ -3658,6 +3672,7 @@ function fillSettingsForm() {
   $('#sTmdb').value = s.tmdbKey; $('#sOmdb').value = s.omdbKey; $('#sLang').value = s.lang; $('#sDepth').value = s.depth;
   $('#sMinVotes').value = s.minVotes; $('#sTheme').value = s.theme; $('#sGh').value = s.ghToken;
   $('#syncOff').hidden = !s.ghToken;
+  $('#ghCloudHint').hidden = !cloudIn();
   var st = $('#syncState'); st.dataset.s = s.ghToken ? state.sync.s : 'off'; st.textContent = s.ghToken ? state.sync.status : 'Sin sincronizar.';
   var ok = canPair();
   $('#pairShow').disabled = !ok;
