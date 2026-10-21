@@ -985,13 +985,20 @@ function whyHTML(it) {
   var meta = state.special && state.special.meta && state.special.meta.get(it.k);
   return meta && meta.why ? '<p class="why">' + esc(meta.why) + '</p>' : '';
 }
+/* el marcador va lleno si el título está en cualquier lista; con fondo de color si es Mi lista */
+function bookmarkState(k) {
+  var lists = visibleLists().filter(function (l) { return isIn(l, k); }), watch = lists.some(function (l) { return l.id === 'watchlist'; });
+  var others = lists.filter(function (l) { return l.id !== 'watchlist'; }).map(function (l) { return '«' + l.name + '»'; });
+  var tip = watch ? 'En Mi lista' + (others.length ? ' y en ' + others.join(', ') : '') + '. Tocá para sacarla de Mi lista' : others.length ? 'Guardada en ' + others.join(', ') + '. Tocá para sumarla a Mi lista' : 'Sumar a Mi lista';
+  return { watch: watch, saved: lists.length > 0, other: !watch && others.length > 0, tip: tip };
+}
 function cardHTML(it) {
-  var watch = inList('watchlist', it.k), seen = isSeen(it.k), t = esc(it.t), p = safePath(it.p);
+  var bm = bookmarkState(it.k), watch = bm.watch, seen = isSeen(it.k), t = esc(it.t), p = safePath(it.p);
   var img = p ? '<img loading="lazy" decoding="async" alt="" src="' + IMG + 'w342' + p + '" srcset="' + IMG + 'w185' + p + ' 185w, ' + IMG + 'w342' + p + ' 342w" sizes="(max-width: 480px) 46vw, 200px">' : '<span class="noposter">' + t + '</span>';
   return '<article class="card' + (seen ? ' is-seen' : '') + '" data-k="' + esc(it.k) + '">' +
     '<div class="poster-wrap"><button class="poster" type="button" data-act="open" aria-label="' + t + ': ver ficha">' + img + '</button>' +
     '<div class="quick">' +
-      '<button class="q" type="button" data-act="watch" aria-pressed="' + watch + '" aria-label="Mi lista" title="Mi lista">' + (watch ? ICON.bookmarkOn : ICON.bookmark) + '</button>' +
+      '<button class="q' + (bm.other ? ' saved' : '') + '" type="button" data-act="watch" aria-pressed="' + watch + '" aria-label="' + esc(bm.tip) + '" title="' + esc(bm.tip) + '">' + (bm.saved ? ICON.bookmarkOn : ICON.bookmark) + '</button>' +
       '<button class="q" type="button" data-act="seen" aria-pressed="' + seen + '" aria-label="Ya la vi" title="Ya la vi">' + ICON.eye + '</button>' +
       '<button class="q" type="button" data-act="lists" aria-haspopup="menu" aria-label="Agregar a otra lista" title="Agregar a otra lista">' + ICON.plus + '</button>' +
     '</div>' + (seen ? '<span class="seen-tag">Vista</span>' : '') + '</div>' +
@@ -1010,8 +1017,10 @@ function updateCard(k) {
   syncCardButtons(el, it);
 }
 function syncCardButtons(el, it) {
-  var watch = inList('watchlist', it.k), seen = isSeen(it.k);
-  var bw = $('[data-act="watch"]', el); bw.setAttribute('aria-pressed', watch); bw.innerHTML = watch ? ICON.bookmarkOn : ICON.bookmark;
+  var seen = isSeen(it.k);
+  var bm = bookmarkState(it.k), bw = $('[data-act="watch"]', el);
+  bw.setAttribute('aria-pressed', bm.watch); bw.classList.toggle('saved', bm.other); bw.innerHTML = bm.saved ? ICON.bookmarkOn : ICON.bookmark;
+  bw.setAttribute('aria-label', bm.tip); bw.title = bm.tip;
   $('[data-act="seen"]', el).setAttribute('aria-pressed', seen);
   el.classList.toggle('is-seen', seen);
   var tag = $('.seen-tag', el);
@@ -3980,7 +3989,7 @@ function bind() {
   $('#menuNew').addEventListener('submit', function (e) {
     e.preventDefault(); var inp = $('#menuNewName'), it = state.menuItem; if (!it) return;
     var l = createList(inp.value); if (!l) return;
-    toggleList(l.id, it, true); inp.value = ''; renderMenu(); toast('Lista «' + l.name + '» creada con este título.');
+    toggleList(l.id, it, true); inp.value = ''; renderMenu(); var card = cardEl(it.k); if (card) syncCardButtons(card, it); toast('Lista «' + l.name + '» creada con este título.');
   });
   $('#menuHide').addEventListener('click', function () {
     var it = state.menuItem; if (!it) return;
@@ -4026,7 +4035,7 @@ function bind() {
     if (st && Date.now() - (state.starTouchAt || 0) < 700) return;
     if (st) { var n = +st.dataset.star; if (setStar(it, starOf(it.k) === n ? 0 : n)) toast('Puntuada y marcada como vista.'); renderDetail(); updateCard(it.k); return; }
     var dl = e.target.closest('[data-dlist]');
-    if (dl) { toggleList(dl.dataset.dlist, it); renderDetail(); if (state.ui.view === 'lists') refreshSoon(); return; }
+    if (dl) { toggleList(dl.dataset.dlist, it); renderDetail(); updateCard(it.k); if (state.ui.view === 'lists') refreshSoon(); return; }
     if (e.target.closest('[data-dnewlist]')) { D.newList = true; D.focusNew = true; renderDetail(); return; }
     if (e.target.closest('[data-dnewcancel]')) { D.newList = false; renderDetail(); return; }
     var tb = e.target.closest('[data-trailer]');
@@ -4039,7 +4048,7 @@ function bind() {
     var l = createList(inp.value); if (!l) { inp.focus(); return; }
     toggleList(l.id, D.it, true); inp.value = ''; D.newList = false;
     toast('Lista «' + l.name + '» creada con este título.');
-    renderDetail(); if (state.ui.view === 'lists') refreshSoon();
+    renderDetail(); updateCard(D.it.k); if (state.ui.view === 'lists') refreshSoon();
   });
   dd.addEventListener('close', function () { state.detail = null; resetDetailView(); });
   dd.addEventListener('mouseover', function (e) { var b = e.target.closest('#myStars [data-star]'); if (b) starPreview(+b.dataset.star); });
