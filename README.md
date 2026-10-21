@@ -61,7 +61,7 @@ Abierta desde el navegador de un celular, la app pide instalarse primero (en And
 
 ## Estrellas
 
-1 **Mala** (no me gustó) · 2 **Decente** (no es para mí, pero no la pasé mal) · 3 **Buena** (la pasé bien; tiene defectos) · 4 **Excelente** (me encantó) · 5 **Increíble** (memorable, un clásico). Pasando el mouse o deslizando el dedo sobre las estrellas aparece qué significa cada una. Para las recomendaciones, 3 ya suma un poco, 4 y 5 suman fuerte, 2 resta un poco y 1 resta fuerte.
+1 **Mala** (no me gustó, no la recomendaría) · 2 **Decente** (no es para mí, aunque no la pasé mal) · 3 **Buena** (la disfruté; tiene sus defectos, pero cumple) · 4 **Excelente** (me encantó, la recomiendo sin dudar) · 5 **Increíble** (memorable, un clásico que marca un antes y un después). Pasando el mouse o deslizando el dedo sobre las estrellas aparece qué significa cada una. Para las recomendaciones, 3 ya suma un poco, 4 y 5 suman fuerte, 2 resta un poco y 1 resta fuerte.
 
 ## Personas
 

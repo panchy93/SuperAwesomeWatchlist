@@ -1336,8 +1336,8 @@ async function openDetail(it, pick) {
 }
 /* escala de estrellas (pasar el dedo o el mouse muestra qué significa cada una) */
 var STAR_NAME = ['', 'Mala', 'Decente', 'Buena', 'Excelente', 'Increíble'];
-var STAR_TXT = ['', 'Mala: no me gustó', 'Decente: no es para mí, pero no la pasé mal', 'Buena: la pasé bien; tiene defectos, pero es buena', 'Excelente: me encantó, buenísima', 'Increíble: memorable, un clásico, un antes y un después'];
-function starHintText(n) { return n ? '<b>' + '★'.repeat(n) + ' ' + STAR_NAME[n] + '</b> · ' + esc(STAR_TXT[n].split(': ')[1]) : 'Tocá o deslizá el dedo sobre las estrellas para puntuar'; }
+var STAR_TXT = ['', 'Mala: no me gustó, no la recomendaría', 'Decente: no es para mí, aunque no la pasé mal', 'Buena: la disfruté; tiene sus defectos, pero cumple', 'Excelente: me encantó, la recomiendo sin dudar', 'Increíble: memorable, un clásico que marca un antes y un después'];
+function starHintText(n) { if (!n) return 'Tocá o deslizá el dedo sobre las estrellas para puntuar'; var t = STAR_TXT[n].split(': ')[1]; return '<b>' + '★'.repeat(n) + ' ' + STAR_NAME[n] + '</b> · ' + esc(t.charAt(0).toUpperCase() + t.slice(1)) + '.'; }
 function starPreview(n) {
   var box = $('#myStars'), hint = $('#starHint'); if (!box) return;
   var cur = +box.dataset.cur || 0, show = n == null ? cur : n;
@@ -3396,13 +3396,14 @@ async function buddyRemove(uid) {
 /* el mensaje que acompaña el link al compartirlo (WhatsApp y demás): qué es y qué se puede hacer */
 function invitePitch(kind, toName, email) {
   var me = myDisplayName(), hi = kind === 'buddy' ? me + ' te invita a ser su watch buddy en WatchListo 🍿' : (toName ? toName + ', te' : 'Te') + ' invito a WatchListo 🍿';
-  return [hi,
-    'Es una app para decidir qué ver sin perder la noche buscando:',
-    '• Netflix, Prime Video, Disney+, HBO Max y los servicios que tengas, en un solo catálogo con puntajes de IMDb, Rotten Tomatoes y Metacritic.',
-    '• Te dice en qué calidad y con qué idiomas está cada peli en cada servicio.',
+  return [hi, '',
+    'Una app con búsqueda, listado y recomendación de pelis y series:', '',
+    '• Filtra por streaming service (Netflix, Prime Video, Disney+, HBO Max, Stremio y los servicios que tengas) en un solo catálogo con puntajes de IMDb, Rotten Tomatoes y/o Metacritic.',
+    '• Te dice en qué calidad y con qué idiomas está cada peli y en qué servicio.',
+    '• Te permite guardar listas custom, a mano o generadas automáticamente con un recommendation engine personalizado a tus gustos.',
     '• Random te hace un par de preguntas y te recomienda según lo que ya viste y te gustó.',
-    '• Festivales que se arman solos por género, director o a partir de tus favoritas.',
-    '• De a dos: recomendaciones que cruzan tu gusto con el de otra persona, y listas compartidas.',
+    '• Festivales que se arman solos por género, director o a partir de tus favoritas (como las radios de Spotify, pero para pelis y series).',
+    '• De a dos: recomendaciones que cruzan tu gusto con el de otra persona, y listas compartidas.', '',
     kind === 'buddy' ? 'Instalala desde el link y entrá con tu cuenta de Google. Si te dice que no estás invitado, tocá «Pedir acceso».'
       : 'Instalala desde el link y entrá con tu cuenta de Google' + (email ? ' (' + email + ')' : '') + ': te llega todo configurado.'
   ].join('\n');
