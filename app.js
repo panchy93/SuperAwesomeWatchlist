@@ -601,9 +601,13 @@ function progressNote() {
 var TIO = 'https://torrentio.strem.fun';
 var Q_RANK = { '4k': 6, '2160p': 6, '1440p': 5, '1080p': 4, '720p': 3, '576p': 2, '480p': 2, '360p': 1, '240p': 1 };
 var Q_NAME = ['', 'SD', 'SD', '720p', '1080p', '1440p', '4K'];
+/* lo guardado se vuelve a validar al leerlo: solo números chicos, nada de texto */
 function pruneStremio(o) {
-  var out = {}, t = Date.now();
-  Object.keys(o || {}).forEach(function (k) { var v = o[k]; if (/^tt\d{5,10}$/.test(k) && v && +v.at > 0 && t - v.at < (v.n ? 3 : 1) * DAY) out[k] = v; });
+  var out = {}, t = Date.now(), num = function (v, max) { v = Math.round(+v); return v >= 0 && v <= max ? v : 0; };
+  Object.keys(o || {}).forEach(function (k) {
+    var v = o[k]; if (!/^tt\d{5,10}$/.test(k) || !v || !(+v.at > 0) || t - v.at > (v.n ? 3 : 1) * DAY) return;
+    out[k] = { at: +v.at, n: num(v.n, 500), q: num(v.q, 6), hdr: num(v.hdr, 6), dv: num(v.dv, 6), lat: num(v.lat, 6), cas: num(v.cas, 6), multi: num(v.multi, 6), cam: num(v.cam, 500) };
+  });
   return out;
 }
 var ST = { cache: pruneStremio(LS.get('stremio', {})), q: [], queued: new Set(), wait: new Set(), running: 0, max: 2, fails: 0, off: false };
