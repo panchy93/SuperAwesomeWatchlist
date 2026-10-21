@@ -1,8 +1,8 @@
 /* WatchListo: service worker. Solo maneja archivos propios del sitio;
-   nunca toca pedidos a TMDB, OMDb ni GitHub. */
-const CACHE = 'cartelera-v14';
+   nunca toca pedidos a otros sitios. */
+const CACHE = 'cartelera-v15';
 const ASSETS = [
-  './', './index.html', './styles.css', './app.js', './qr.js', './manifest.webmanifest', './curaduria.json',
+  './', './index.html', './styles.css', './app.js', './manifest.webmanifest', './curaduria.json',
   './icons/icon-192.png', './icons/icon-512.png', './icons/maskable-512.png',
   './icons/apple-touch-icon.png', './icons/favicon-32.png', './icons/favicon-64.png'
 ];

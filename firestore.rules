@@ -1,7 +1,7 @@
 rules_version = '2';
 
 // Reglas de WatchListo. Se pegan en Firebase > Firestore > Reglas > Publicar.
-// Solo entran mails invitados (o el administrador). Cada uno lee y escribe lo suyo;
+// Solo entran mails invitados (o el administrador); el resto puede pedir acceso. Cada uno lee y escribe lo suyo;
 // el gusto de alguien lo ven solo sus watch buddies; una lista compartida la tocan solo sus miembros.
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -17,6 +17,17 @@ service cloud.firestore {
       allow get: if signedIn() && (isAdmin() || mail == email());
       allow list, delete: if isAdmin();
       allow create, update: if isAdmin() && onlyKeys(['name', 'by', 'at']);
+    }
+
+    // Pedidos de acceso: quien entra con Google sin invitacion deja su pedido (uno por mail).
+    // Solo el administrador los ve, y los aprueba (creando la invitacion) o los borra.
+    match /accessRequests/{mail} {
+      allow get: if signedIn() && (isAdmin() || mail == email());
+      allow list, delete: if isAdmin();
+      allow create: if signedIn() && mail == email() && onlyKeys(['name', 'uid', 'at'])
+        && request.resource.data.uid == me()
+        && request.resource.data.name is string && request.resource.data.name.size() <= 60
+        && request.resource.data.at is number;
     }
 
     // Claves de los catalogos (TMDB, OMDb) para que los invitados no configuren nada.

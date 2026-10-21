@@ -85,7 +85,7 @@ var SORTS_PERSON = [['year', 'Más nuevas'], ['rating', 'Mejor rating'], ['popul
 var SORTS_SEARCH = [['relevance', 'Relevancia']];
 var KW_STOP = new Set(['woman director', 'duringcreditsstinger', 'aftercreditsstinger', 'sequel', 'prequel', 'remake', 'independent film', 'live action remake', '3d', 'imax', 'short film', 'directorial debut', 'female protagonist', 'male protagonist', 'christmas', 'new year', 'anime', 'lgbt interest', 'shot on 35mm', 'black and white']);
 
-var DEFAULT_SETTINGS = { tmdbKey: '', omdbKey: '', lang: 'es-MX', region: 'AR', depth: 'normal', minVotes: 30, theme: 'system', ghToken: '', gistId: '', myName: '' };
+var DEFAULT_SETTINGS = { tmdbKey: '', omdbKey: '', lang: 'es-MX', region: 'AR', depth: 'normal', minVotes: 30, theme: 'system', myName: '' };
 function defaultFilters() { return { services: SERVICES.map(function (s) { return s.key; }), ratingSrc: 'tmdb', ratingMin: 0, includeUnknown: false, genres: {}, genreMode: 'any', yearFrom: '', yearTo: '', maxRuntime: 0, hideSeen: true, noIndia: true, people: [], onlyMine: false }; }
 
 /* ---------- user data: lists, seen, stars (sync-friendly) ----------
@@ -207,10 +207,11 @@ var state = {
   personData: {}, personLoading: {}, seedCache: {},
   filtered: [], index: new Map(), limit: PAGE,
   detail: null, menuItem: null, lastPick: null,
-  omdbStop: null, fatal: null,
-  sync: { status: 'Sin sincronizar.', s: 'off', last: 0 }
+  omdbStop: null, fatal: null
 };
 applyServices();
+/* la sincronización por GitHub (Gist) se reemplazó por la cuenta de Google: el token viejo se borra del dispositivo */
+if ('ghToken' in state.settings || 'gistId' in state.settings) { delete state.settings.ghToken; delete state.settings.gistId; LS.set('settings', state.settings); }
 if (!Array.isArray(state.f.services)) state.f.services = defaultFilters().services;
 fixFilterServices();
 if (!state.f.genres || typeof state.f.genres !== 'object') state.f.genres = {};
@@ -223,7 +224,7 @@ LS.set('user', state.user);
 function saveUi() { LS.set('ui', state.ui); LS.set('filters', state.f); }
 function saveSettings() { LS.set('settings', state.settings); }
 var saveCachesSoon = debounce(function () { LS.set('details', state.details); LS.set('omdb', state.omdb); }, 1500);
-function touchUser() { state.user.updatedAt = now(); LS.set('user', state.user); syncSoon(); if (cloudIn()) { cloudPushSoon(); if (CLOUD.shared.size) pushSharedSoon(); } }
+function touchUser() { state.user.updatedAt = now(); LS.set('user', state.user); if (cloudIn()) { cloudPushSoon(); if (CLOUD.shared.size) pushSharedSoon(); } }
 
 /* ---------- list accessors ---------- */
 function visibleLists() { return state.user.lists.concat(CLOUD && CLOUD.shared ? sharedLists() : []).filter(function (l) { return !l.deletedAt; }); }
@@ -1266,7 +1267,7 @@ function renderRailStatus() {
     var ago = Math.round((Date.now() - cat.at) / 36e5);
     out.push('<p><b>' + nf.format(cat.items.length) + '</b> ' + (type === 'movie' ? 'películas' : 'series') + ' en el catálogo · ' + (ago < 1 ? 'leído recién' : 'leído hace ' + ago + ' h') + ' · <button class="linkbtn" type="button" data-reload>Actualizar</button></p>');
   }
-  if (!state.settings.omdbKey) out.push('<p>Sumá una clave gratis de OMDb para ver IMDb, Rotten Tomatoes y Metacritic. <button class="linkbtn" type="button" data-settings>Configurar</button></p>');
+  if (!state.settings.omdbKey && !(cloudIn() && !CLOUD.admin)) out.push('<p>Sumá una clave gratis de OMDb para ver IMDb, Rotten Tomatoes y Metacritic. <button class="linkbtn" type="button" data-settings>Configurar</button></p>');
   else if (state.omdbStop) out.push('<p>' + esc(state.omdbStop) + '</p>');
   else if (state.filtered.length) {
     var have = 0, none = 0;
@@ -1279,8 +1280,7 @@ function renderRailStatus() {
     var known = state.filtered.filter(function (it) { var d = state.details[it.k]; return d && d.rt; }).length;
     if (known < state.filtered.length) out.push('<p>Duración conocida en ' + nf.format(known) + ' de ' + nf.format(state.filtered.length) + '. Las que faltan se van completando y se descartan si se pasan.</p>');
   }
-  if (state.settings.ghToken) out.push('<p class="sync-state" data-s="' + state.sync.s + '">' + esc(state.sync.status) + '</p>');
-  else out.push('<p>Tus listas están solo en este dispositivo. <button class="linkbtn" type="button" data-settings>Sincronizar</button></p>');
+  if (!cloudIn() && CLOUD.status !== 'checking') out.push('<p>Tus listas están solo en este dispositivo. <button class="linkbtn" type="button" data-gocloud>Guardarlas en tu cuenta</button></p>');
   el.innerHTML = out.join('');
 }
 
@@ -2492,6 +2492,11 @@ function renderProfile() {
     '<p class="pf-sub">' + nf.format(st.total) + (st.total === 1 ? ' vista' : ' vistas') + ' · ' + nf.format(st.rated) + ' con estrellas · ' + nf.format(lists.length) + (lists.length === 1 ? ' lista' : ' listas') + '</p></div>' +
     '<div class="pf-actions"><button class="btn" type="button" data-pf="duo">' + DUO_ICON + 'De a dos</button><button class="btn" type="button" data-pf="settings">Ajustes</button></div></header>' +
     '<div class="pf-cloud">' + cloudCardHTML() + '</div>';
+  if (CLOUD.admin && cloudIn() && CLOUD.requests && CLOUD.requests.length) {
+    h += '<section class="pf-sec" id="pfReq"><h3 class="fest-h">Pedidos de acceso</h3><p class="hint">Entraron con Google sin estar invitados. Si los aprobás, entran solos y les llegan tus claves.</p><ul class="duo-people">' + CLOUD.requests.map(function (r) {
+      return '<li><span><b>' + esc(r.name || r.email) + '</b><small>' + esc(r.email) + (r.at ? ' · ' + esc(new Date(r.at).toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })) : '') + '</small></span><span class="inv-acts"><button class="btn btn-accent" type="button" data-pf="reqok" data-v="' + esc(r.email) + '">Aprobar</button><button class="btn btn-ghost" type="button" data-pf="reqno" data-v="' + esc(r.email) + '">Rechazar</button></span></li>';
+    }).join('') + '</ul></section>';
+  }
   if (!st.total) {
     h += '<div class="pf-empty"><p>Todavía no marcaste nada como visto. Cuando lo hagas (o les pongas estrellas), acá aparece tu resumen: géneros, etiquetas y épocas favoritas, tu joya escondida y más.</p></div>';
   } else {
@@ -2543,7 +2548,12 @@ function renderProfile() {
         return '<li><span><b>' + esc(x.name || x.email) + '</b><small>' + esc(x.email) + '</small></span><span class="inv-acts"><button class="btn" type="button" data-pf="invshare" data-v="' + esc(x.email) + '">Mandar link</button><button class="btn btn-ghost" type="button" data-pf="invdel" data-v="' + esc(x.email) + '">' + (state.invDel === x.email ? 'Confirmar' : 'Quitar') + '</button></span></li>';
       }).join('') + '</ul>' : '<p class="hint">Todavía no invitaste a nadie.</p>') + '</section>';
   }
+  /* lo que estabas escribiendo (nombre, invitación) sobrevive a los repintados que llegan de la nube */
+  var keep = {}, focused = document.activeElement && el.contains(document.activeElement) ? document.activeElement.id : '';
+  $$('input[id]', el).forEach(function (i) { if (i.value !== i.defaultValue) keep[i.id] = i.value; });
   el.innerHTML = h;
+  Object.keys(keep).forEach(function (id) { var i = document.getElementById(id); if (i) i.value = keep[id]; });
+  if (focused) { var f = document.getElementById(focused); if (f) f.focus(); }
   $$('.pf-fill', el).forEach(function (f) { f.style.width = f.dataset.w + '%'; });
 }
 function svcSectionHTML() {
@@ -2586,6 +2596,7 @@ function toggleService(key) {
 function profileAct(act, v) {
   if (act === 'svc') { if (!chosenServices().some(function (x) { return x.key === v; })) state.svcRestOpen = true; toggleService(v); return; }
   if (act === 'svcrest') { state.svcRestOpen = !state.svcRestOpen; return; }
+  if (act === 'reqok' || act === 'reqno') { accessDecide(v, act === 'reqok'); return; }
   if (act === 'duo') { openDuo(); return; }
   if (act === 'settings') { fillSettingsForm(); openDialog($('#dlgSettings')); return; }
   if (act === 'seen') { state.ui.list = 'seen'; setView('lists'); return; }
@@ -2593,7 +2604,7 @@ function profileAct(act, v) {
   if (act === 'open') { openDetail(itemFor(v)); return; }
   if (act === 'buddy') { setDuo(v); openDuo(); return; }
   if (act === 'ideal') { var b = $('#profile [data-pf="ideal"]'); startSectionFestival(v, b); return; }
-  if (act === 'invshare') { var x = (CLOUD.invites || []).filter(function (i) { return i.email === v; })[0]; shareLink(appUrl(), 'Te invité a WatchListo' + (x && x.name ? ', ' + x.name : '') + '. Instalala desde este link y entrá con tu cuenta de Google (' + v + '): te llega todo configurado.', 'Link copiado. Mandáselo y que entre con ' + v + '.'); return; }
+  if (act === 'invshare') { var x = (CLOUD.invites || []).filter(function (i) { return i.email === v; })[0]; shareLink(appUrl(), invitePitch('invite', x && x.name, v), 'Mensaje y link copiados. Mandáselo y que entre con ' + v + '.'); return; }
   if (act === 'invdel') {
     if (state.invDel !== v) { state.invDel = v; renderProfile(); setTimeout(function () { if (state.invDel === v) { state.invDel = null; renderProfile(); } }, 4000); return; }
     state.invDel = null; inviteRemove(v).catch(function () { toast('No pude quitar la invitación.'); }); return;
@@ -3102,7 +3113,7 @@ var FB_CONFIG = {
 };
 var FB_BASE = 'https://www.gstatic.com/firebasejs/12.11.0/';
 var ADMIN_EMAIL = 'pfiguerero@gmail.com';
-var CLOUD = { api: null, loading: null, authUnsub: null, user: null, status: 'off', admin: false, unsubs: [], shared: new Map(), buddies: [], buddyUids: [], invites: null, modelKey: '', tasteKey: '', pendingBuddy: null };
+var CLOUD = { api: null, loading: null, authUnsub: null, user: null, status: 'off', admin: false, unsubs: [], shared: new Map(), buddies: [], buddyUids: [], invites: null, requests: null, requested: false, modelKey: '', tasteKey: '', pendingBuddy: null };
 function cloudIn() { return CLOUD.status === 'in' && !!CLOUD.user; }
 function cloudUid() { return CLOUD.user ? CLOUD.user.uid : ''; }
 function randomCode(n) { var a = new Uint8Array(n), abc = 'abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789', s = ''; crypto.getRandomValues(a); for (var i = 0; i < n; i++) s += abc.charAt(a[i] % abc.length); return s; }
@@ -3171,6 +3182,7 @@ async function cloudSignIn() {
 }
 async function cloudSignOut() {
   if (!CLOUD.api) return;
+  if (CLOUD.inviteUnsub) { try { CLOUD.inviteUnsub(); } catch (e) {} CLOUD.inviteUnsub = null; }
   await CLOUD.api.signOut();
   LS.del('cloudOn');
   toast('Saliste de tu cuenta. Lo de este dispositivo queda acá.');
@@ -3179,12 +3191,16 @@ function cloudStopWatches() { CLOUD.unsubs.forEach(function (u) { try { u(); } c
 async function onCloudUser(u) {
   cloudStopWatches();
   CLOUD.user = u; CLOUD.modelKey = ''; CLOUD.tasteKey = '';
-  if (!u) { CLOUD.status = 'out'; CLOUD.shared.clear(); CLOUD.buddies = []; CLOUD.buddyUids = []; CLOUD.invites = null; renderCloudUI(); renderDuoBtn(); refresh(true); return; }
+  if (!u) { CLOUD.status = 'out'; CLOUD.shared.clear(); CLOUD.buddies = []; CLOUD.buddyUids = []; CLOUD.invites = null; CLOUD.requests = null; CLOUD.requested = false; renderReqBadge(); renderCloudUI(); renderDuoBtn(); refresh(true); return; }
   LS.set('cloudOn', true);
   CLOUD.status = 'checking'; CLOUD.admin = u.email === ADMIN_EMAIL; renderCloudUI();
   var keys;
   try { keys = await CLOUD.api.get('config/keys'); }
-  catch (e) { CLOUD.lastErr = String((e && e.code) || '') + (e && e.message ? ': ' + String(e.message).slice(0, 200) : ''); CLOUD.status = isDenied(e) ? 'denied' : 'error'; renderCloudUI(); return; }
+  catch (e) {
+    CLOUD.lastErr = String((e && e.code) || '') + (e && e.message ? ': ' + String(e.message).slice(0, 200) : ''); CLOUD.status = isDenied(e) ? 'denied' : 'error'; renderCloudUI();
+    if (CLOUD.status === 'denied' && !CLOUD.admin) accessCheck(u);
+    return;
+  }
   CLOUD.lastErr = '';
   CLOUD.status = 'in';
   await cloudApplyKeys(keys);
@@ -3193,7 +3209,7 @@ async function onCloudUser(u) {
   cloudWatch();
   if (CLOUD.admin) cloudLoadInvites();
   renderCloudUI(); refresh(true);
-  if (CLOUD.pendingBuddy) buddyOpenPending();
+  if (CLOUD.pendingBuddy || LS.get('pendingBuddy', null)) buddyOpenPending();
 }
 /* claves de catálogo: el administrador las publica, los invitados las reciben sin tocar nada */
 async function cloudApplyKeys(keys) {
@@ -3249,6 +3265,50 @@ function cloudWatch() {
   CLOUD.unsubs.push(api.watch('users/' + uid, function (d) { var b = d && Array.isArray(d.buddies) ? d.buddies.filter(function (x) { return typeof x === 'string' && x !== uid; }) : []; if (b.join() !== CLOUD.buddyUids.join()) { CLOUD.buddyUids = b; loadBuddies(); } }, soft));
   CLOUD.unsubs.push(api.watchWhere('lists', 'members', 'array-contains', uid, onSharedLists, soft));
   CLOUD.unsubs.push(api.watchWhere('buddyInvites', 'from', '==', uid, onMyBuddyInvites, soft));
+  if (CLOUD.admin) CLOUD.unsubs.push(api.watchWhere('accessRequests', 'at', '>', 0, onAccessRequests, soft));
+}
+
+/* --- pedidos de acceso: quien entra con Google sin invitación lo pide desde la app y el
+   administrador lo aprueba en Perfil. Al aprobarlo, la otra persona entra sola. --- */
+function accessCheck(u) {
+  CLOUD.api.get('accessRequests/' + u.email).then(function (d) { CLOUD.requested = !!d; if (d) accessWatch(u); renderCloudUI(); }, function () {});
+}
+async function accessRequest(btn) {
+  var u = CLOUD.user; if (!u || !CLOUD.api) return;
+  if (btn) btn.disabled = true;
+  try {
+    await CLOUD.api.set('accessRequests/' + u.email, { name: String(myDisplayName() || u.email).replace(/[<>]/g, '').slice(0, 60), uid: u.uid, at: Date.now() });
+    CLOUD.requested = true; accessWatch(u); renderCloudUI();
+    toast('Pedido enviado. Cuando te aprueben, entrás solo.');
+  } catch (e) { toast('No pude mandar el pedido. Probá de nuevo.'); if (btn) btn.disabled = false; }
+}
+function accessWatch(u) {
+  if (CLOUD.inviteUnsub) return;
+  CLOUD.inviteUnsub = CLOUD.api.watch('invites/' + u.email, function (d) {
+    if (!d || CLOUD.status !== 'denied' || !CLOUD.user || CLOUD.user.uid !== u.uid) return;
+    var stop = CLOUD.inviteUnsub; CLOUD.inviteUnsub = null; if (stop) try { stop(); } catch (e) {}
+    CLOUD.requested = false; toast('¡Te aprobaron! Entrando…');
+    onCloudUser(u).catch(function (e) { CLOUD.lastErr = String((e && (e.code || e.message)) || e); CLOUD.status = 'error'; renderCloudUI(); });
+  }, function () {});
+}
+function onAccessRequests(docs) {
+  var prev = CLOUD.requests, list = docs.map(function (d) { return { email: d.id, name: String((d.data && d.data.name) || '').slice(0, 60), at: +(d.data && d.data.at) || 0 }; })
+    .filter(function (r) { return /^[^\s@\/]+@[^\s@\/]+$/.test(r.email); }).sort(function (a, b) { return b.at - a.at; });
+  if (prev) list.forEach(function (r) { if (!prev.some(function (x) { return x.email === r.email; })) toast((r.name || r.email) + ' pidió acceso. Lo aprobás en Perfil.'); });
+  CLOUD.requests = list; renderReqBadge();
+  if (state.ui.view === 'profile') renderProfile();
+}
+function renderReqBadge() {
+  var n = CLOUD.requests ? CLOUD.requests.length : 0;
+  $$('#tabbar [data-tab="profile"], #viewSeg [data-view="profile"]').forEach(function (b) { b.classList.toggle('has-badge', n > 0); b.dataset.badge = n ? String(Math.min(n, 9)) : ''; });
+}
+async function accessDecide(email, ok) {
+  var r = (CLOUD.requests || []).filter(function (x) { return x.email === email; })[0]; if (!r) return;
+  try {
+    if (ok) await inviteAdd(email, r.name);
+    await CLOUD.api.del('accessRequests/' + email);
+    toast(ok ? (r.name || email) + ' ya puede entrar.' : 'Pedido rechazado.');
+  } catch (e) { toast('No pude ' + (ok ? 'aprobar' : 'rechazar') + ' el pedido.'); }
 }
 
 /* --- watch buddies: invitación por link, cada uno decide quién ve su gusto --- */
@@ -3287,7 +3347,7 @@ async function buddyInvite(btn) {
   try {
     var code = randomCode(20);
     await CLOUD.api.set('buddyInvites/' + code, { from: cloudUid(), fromName: myDisplayName(), at: Date.now() });
-    await shareLink(appUrl() + '#buddy=' + code, myDisplayName() + ' te invita a ser su watch buddy en WatchListo', 'Link copiado. Cuando lo acepte, aparece en tus buddies.');
+    await shareLink(appUrl() + '#buddy=' + code, invitePitch('buddy'), 'Mensaje y link copiados. Cuando lo acepte, aparece en tus buddies.');
   } catch (e) { toast(isDenied(e) ? 'Tu cuenta no tiene permiso para invitar.' : 'No pude crear la invitación.'); }
   finally { if (btn) btn.disabled = false; }
 }
@@ -3333,9 +3393,24 @@ async function buddyRemove(uid) {
   await CLOUD.api.set('users/' + cloudUid(), { buddies: CLOUD.api.remove(uid) }, true);
   if (state.duo === 'u:' + uid) setDuo(null);
 }
+/* el mensaje que acompaña el link al compartirlo (WhatsApp y demás): qué es y qué se puede hacer */
+function invitePitch(kind, toName, email) {
+  var me = myDisplayName(), hi = kind === 'buddy' ? me + ' te invita a ser su watch buddy en WatchListo 🍿' : (toName ? toName + ', te' : 'Te') + ' invito a WatchListo 🍿';
+  return [hi,
+    'Es una app para decidir qué ver sin perder la noche buscando:',
+    '• Netflix, Prime Video, Disney+, HBO Max y los servicios que tengas, en un solo catálogo con puntajes de IMDb, Rotten Tomatoes y Metacritic.',
+    '• Te dice en qué calidad y con qué idiomas está cada peli en cada servicio.',
+    '• Random te hace un par de preguntas y te recomienda según lo que ya viste y te gustó.',
+    '• Festivales que se arman solos por género, director o a partir de tus favoritas.',
+    '• De a dos: recomendaciones que cruzan tu gusto con el de otra persona, y listas compartidas.',
+    kind === 'buddy' ? 'Instalala desde el link y entrá con tu cuenta de Google. Si te dice que no estás invitado, tocá «Pedir acceso».'
+      : 'Instalala desde el link y entrá con tu cuenta de Google' + (email ? ' (' + email + ')' : '') + ': te llega todo configurado.'
+  ].join('\n');
+}
 async function shareLink(url, text, copiedMsg) {
   if (navigator.share) { try { await navigator.share({ title: 'WatchListo', text: text, url: url }); return; } catch (e) { if (e && e.name === 'AbortError') return; } }
-  try { await navigator.clipboard.writeText(url); toast(copiedMsg || 'Link copiado.'); } catch (e) { window.prompt('Copiá este link:', url); }
+  var all = text ? text + '\n' + url : url;
+  try { await navigator.clipboard.writeText(all); toast(copiedMsg || 'Link copiado.'); } catch (e) { window.prompt('Copiá este mensaje:', all); }
 }
 
 /* --- listas compartidas: un documento por lista, con sus miembros; cada cambio es un campo,
@@ -3470,9 +3545,10 @@ function cloudCardHTML() {
   if (st === 'checking') return '<div class="cloud-card"><span class="cloud-dot busy"></span><div><b>Conectando con tu cuenta…</b></div></div>';
   var det = CLOUD.lastErr ? '<small class="cloud-err">Detalle: ' + esc(CLOUD.lastErr) + '</small>' : '';
   if (st === 'denied' && CLOUD.admin) return '<div class="cloud-card warn"><div><b>Firestore rechazó el acceso</b><small>' + esc(u ? u.email : '') + ' es la cuenta de administrador, así que no es un tema de invitación: Firestore no tiene publicadas las reglas de WatchListo (o el publicado falló). Revisá Firestore → Reglas, pegá el archivo completo, tocá Publicar, esperá un minuto y tocá Reintentar.</small>' + det + '</div><button class="btn btn-accent" type="button" data-cloud="retry">Reintentar</button></div>';
-  if (st === 'denied') return '<div class="cloud-card warn"><div><b>Tu cuenta todavía no está invitada</b><small>' + esc(u ? u.email : '') + '. Pedile a quien te pasó la app que sume ese mail.</small>' + det + '</div><button class="btn" type="button" data-cloud="retry">Reintentar</button><button class="btn btn-ghost" type="button" data-cloud="switch">Usar otra cuenta</button></div>';
+  if (st === 'denied' && CLOUD.requested) return '<div class="cloud-card"><span class="cloud-dot busy"></span><div><b>Pedido de acceso enviado</b><small>' + esc(u ? u.email : '') + '. Cuando lo aprueben entrás solo; podés dejar la app abierta o volver más tarde.</small></div><button class="btn btn-ghost" type="button" data-cloud="switch">Usar otra cuenta</button></div>';
+  if (st === 'denied') return '<div class="cloud-card warn"><div><b>Tu cuenta todavía no está invitada</b><small>' + esc(u ? u.email : '') + '. Pedí acceso y te avisamos acá cuando te aprueben.</small></div><button class="btn btn-accent" type="button" data-cloud="request">Pedir acceso</button><button class="btn btn-ghost" type="button" data-cloud="switch">Usar otra cuenta</button></div>';
   if (st === 'error') return '<div class="cloud-card warn"><div><b>No pude conectar con tu cuenta</b><small>Puede ser la conexión o que la base de Firestore no esté creada. Lo de este dispositivo sigue funcionando.</small>' + det + '</div><button class="btn" type="button" data-cloud="' + (u ? 'retry' : 'in') + '">Reintentar</button></div>';
-  return '<div class="cloud-card"><div><b>Guardá todo en tu cuenta</b><small>Entrá con Google para tener tus listas en cualquier dispositivo, watch buddies y listas compartidas. Por ahora es solo por invitación.</small></div><button class="btn btn-accent" type="button" data-cloud="in">Entrar con Google</button></div>';
+  return '<div class="cloud-card"><div><b>Guardá todo en tu cuenta</b><small>Entrá con Google para tener tus listas en cualquier dispositivo, watch buddies y listas compartidas. Si no te invitaron, desde ahí pedís acceso.</small></div><button class="btn btn-accent" type="button" data-cloud="in">Entrar con Google</button></div>';
 }
 function renderCloudUI() {
   var ob = $('#obCloud'); if (ob) ob.innerHTML = cloudCardHTML();
@@ -3483,6 +3559,7 @@ function renderCloudUI() {
 }
 function cloudAct(act, btn) {
   if (act === 'in') { cloudSignIn(); return; }
+  if (act === 'request') { accessRequest(btn); return; }
   if (act === 'retry') { if (CLOUD.user) { var u = CLOUD.user; onCloudUser(u).catch(function (e) { CLOUD.lastErr = String((e && (e.code || e.message)) || e); CLOUD.status = 'error'; renderCloudUI(); }); } else cloudSignIn(); return; }
   if (act === 'out' || act === 'switch') { cloudSignOut().then(function () { if (act === 'switch') cloudSignIn(); }); return; }
 }
@@ -3516,150 +3593,10 @@ function renderInstall() {
 window.addEventListener('beforeinstallprompt', function (e) { e.preventDefault(); installEvt = e; renderInstall(); });
 window.addEventListener('appinstalled', function () { state.installed = true; installEvt = null; renderInstall(); });
 
-/* ---------- sync (GitHub Gist) ---------- */
-var GIST_FILE = 'cartelera.json';
-async function gh(path, opts) {
-  opts = opts || {};
-  var headers = { Authorization: 'Bearer ' + state.settings.ghToken.trim(), Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' };
-  if (opts.body) headers['Content-Type'] = 'application/json';
-  var res;
-  try { res = await fetch('https://api.github.com' + path, { method: opts.method || 'GET', headers: headers, body: opts.body, credentials: 'omit', referrerPolicy: 'no-referrer', cache: 'no-store' }); }
-  catch (e) { throw AppError('gh-net', 'Sin conexión con GitHub. Tus cambios quedan guardados y se suben cuando vuelva la conexión.'); }
-  if (res.status === 401) throw AppError('gh-auth', 'GitHub rechazó el token. Puede estar vencido o mal copiado.');
-  if (res.status === 403 || res.status === 429) {
-    /* 403 puede ser falta de permiso o que GitHub frenó por exceso de pedidos: se distinguen */
-    var why = ''; try { why = String((await res.json()).message || ''); } catch (e) {}
-    why = why.replace(/[^\w .,:;'()\/-]/g, '').slice(0, 140);
-    var left = res.headers.get('x-ratelimit-remaining'), wait = +res.headers.get('retry-after') || 0, reset = +res.headers.get('x-ratelimit-reset') || 0;
-    if (res.status === 429 || left === '0' || /rate limit/i.test(why)) {
-      var e2 = AppError('gh-rate', 'GitHub frenó la sincronización un rato por exceso de cambios seguidos. Se reintenta sola; tus cambios quedan guardados.');
-      e2.retryIn = Math.min(15 * 60e3, Math.max(60e3, wait ? wait * 1000 : reset ? reset * 1000 - Date.now() : 120e3)); throw e2;
-    }
-    throw AppError('gh-perm', 'GitHub no deja que este token use Gists. Revisá que tenga Gists: Read and write.' + (why ? ' Detalle: ' + why : ''));
-  }
-  if (res.status === 404) throw AppError('gh-404', 'No encontré el Gist de WatchListo con este token.');
-  if (!res.ok) throw AppError('gh', 'GitHub respondió con error ' + res.status + '.');
-  return res.json();
-}
-function setSync(s, msg) { state.sync.s = s; state.sync.status = msg; var el = $('#syncState'); if (el) { el.dataset.s = s; el.textContent = msg; } railStatusSoon(); }
-async function findOrCreateGist() {
-  for (var page = 1; page <= 5; page++) {
-    var list = await gh('/gists?per_page=100&page=' + page);
-    var hit = (list || []).filter(function (g) { return g && g.files && g.files[GIST_FILE]; })[0];
-    if (hit) { state.settings.gistId = hit.id; saveSettings(); return 'found'; }
-    if (!list || list.length < 100) break;
-  }
-  var files = {}; files[GIST_FILE] = { content: JSON.stringify(state.user) };
-  var g = await gh('/gists', { method: 'POST', body: JSON.stringify({ description: 'WatchListo: mis listas (no borrar)', public: false, files: files }) });
-  state.settings.gistId = g.id; saveSettings();
-  return 'created';
-}
-var syncChain = Promise.resolve();
-function syncNow(opts) {
-  var run = function () { return doSync(opts || {}); };
-  syncChain = syncChain.then(run, run);
-  return syncChain;
-}
-/* con la cuenta de Google activa, el Gist es un respaldo: se sube con menos apuro */
-var syncSoonFast = debounce(function () { if (state.settings.ghToken) syncNow({ silent: true }); }, 6000);
-var syncSoonSlow = debounce(function () { if (state.settings.ghToken) syncNow({ silent: true }); }, 45000);
-function syncSoon() { if (typeof cloudIn === 'function' && cloudIn()) syncSoonSlow(); else syncSoonFast(); }
-async function doSync(opts) {
-  if (!state.settings.ghToken) return;
-  if (opts.silent && state.sync.blocked) return;
-  if (!opts.silent) state.sync.blocked = false;
-  if (!navigator.onLine) { setSync('err', 'Sin conexión. Tus cambios quedan guardados y se suben cuando vuelva.'); return; }
-  setSync('busy', 'Sincronizando…');
-  try {
-    if (state.settings.gistId && !/^[0-9a-f]{20,40}$/i.test(state.settings.gistId)) { state.settings.gistId = ''; saveSettings(); }
-    if (!state.settings.gistId) await findOrCreateGist();
-    var g;
-    try { g = await gh('/gists/' + state.settings.gistId); }
-    catch (e) { if (e.code !== 'gh-404') throw e; state.settings.gistId = ''; saveSettings(); await findOrCreateGist(); g = await gh('/gists/' + state.settings.gistId); }
-    var f = g.files && g.files[GIST_FILE], remote = null;
-    if (f) {
-      var content = f.content;
-      if (f.truncated && typeof f.raw_url === 'string' && /^https:\/\/gist\.githubusercontent\.com\//.test(f.raw_url)) content = await (await fetch(f.raw_url, { credentials: 'omit', referrerPolicy: 'no-referrer' })).text();
-      try { remote = normUser(JSON.parse(content)); } catch (e) { remote = null; }
-    }
-    var merged = remote ? mergeUsers(state.user, remote) : state.user;
-    if (contentKey(merged) !== contentKey(state.user)) {
-      state.user = merged; LS.set('user', state.user);
-      refresh(true);
-      if (state.detail) renderDetail();
-    }
-    if (!remote || contentKey(merged) !== contentKey(remote)) {
-      var files = {}; files[GIST_FILE] = { content: JSON.stringify(merged) };
-      await gh('/gists/' + state.settings.gistId, { method: 'PATCH', body: JSON.stringify({ files: files }) });
-    }
-    state.sync.last = Date.now();
-    setSync('ok', 'Listas sincronizadas a las ' + hhmm() + '.');
-    $('#syncOff').hidden = false;
-  } catch (e) {
-    if (e.code === 'gh-auth' || e.code === 'gh-perm') state.sync.blocked = true;
-    if (e.code === 'gh-rate' && !state.sync.retryT) state.sync.retryT = setTimeout(function () { state.sync.retryT = null; syncNow({ silent: true }); }, e.retryIn);
-    setSync('err', e.message);
-    if (!opts.silent) toast(e.message);
-  }
-}
-function disconnectSync() {
-  state.settings.ghToken = ''; state.settings.gistId = ''; saveSettings();
-  $('#sGh').value = ''; $('#syncOff').hidden = true;
-  setSync('off', 'Este dispositivo dejó de sincronizar. Tus listas siguen acá y en GitHub.');
-}
-
-/* ---------- pairing (QR) ---------- */
+/* las páginas con https (o localhost) pueden usar service worker, login y compartir */
 function canPair() { return location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1'; }
-function pairUrl() {
-  var s = state.settings;
-  var parts = ['1', s.tmdbKey, s.omdbKey, s.ghToken, s.gistId, s.lang].map(function (x) { return String(x || '').trim(); });
-  return location.origin + location.pathname + '#pair=' + parts.join('~');
-}
-function inviteUrl() {
-  var s = state.settings, withOmdb = $('#inviteOmdb').checked;
-  var parts = ['1', s.tmdbKey, withOmdb ? s.omdbKey : '', '', '', s.lang].map(function (x) { return String(x || '').trim(); });
-  return location.origin + location.pathname + '#pair=' + parts.join('~');
-}
-function resetInvite() { $('#inviteOut').hidden = true; $('#inviteOut').value = ''; $('#inviteBox').hidden = true; $('#inviteQrBox').innerHTML = ''; }
-function inviteCopy() {
-  if (!state.settings.tmdbKey) { toast('Primero cargá la clave de TMDB.'); return; }
-  var url = inviteUrl(), out = $('#inviteOut');
-  out.value = url; out.hidden = false;
-  var fallback = function () { out.focus(); out.select(); toast('Copiá el link del campo de abajo.'); };
-  try { navigator.clipboard.writeText(url).then(function () { toast('Link de invitación copiado.'); }, fallback); } catch (e) { fallback(); }
-}
-function inviteQr() {
-  if (!state.settings.tmdbKey) { toast('Primero cargá la clave de TMDB.'); return; }
-  try { $('#inviteQrBox').innerHTML = window.CarteleraQR.toSvg(inviteUrl(), { label: 'Código de invitación a WatchListo' }); $('#inviteBox').hidden = false; }
-  catch (e) { toast('No pude generar el código.'); }
-}
-var pairTimer;
-function showPair() {
-  if (!state.settings.tmdbKey) { toast('Primero cargá la clave de TMDB.'); return; }
-  var box = $('#pairBox');
-  try { $('#pairQr').innerHTML = window.CarteleraQR.toSvg(pairUrl(), { label: 'Código para vincular otro dispositivo' }); }
-  catch (e) { toast('No pude generar el código.'); return; }
-  box.hidden = false; $('#pairShow').hidden = true;
-  clearTimeout(pairTimer); pairTimer = setTimeout(hidePair, 120000);
-}
-function hidePair() { clearTimeout(pairTimer); $('#pairQr').innerHTML = ''; $('#pairBox').hidden = true; $('#pairShow').hidden = false; }
-function readPairHash() {
-  var h = location.hash || '';
-  if (h.indexOf('#pair=') !== 0) return false;
-  try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
-  var parts;
-  try { parts = decodeURIComponent(h.slice(6)).split('~'); } catch (e) { parts = []; }
-  if (parts[0] !== '1' || parts.length !== 6 || !parts.every(function (p) { return TOKEN_CHARS.test(p) && p.length <= 400; })) { toast('El código de vinculación no es válido.'); return false; }
-  var s = state.settings;
-  if (parts[1]) s.tmdbKey = parts[1];
-  if (parts[2]) s.omdbKey = parts[2];
-  if (parts[3]) s.ghToken = parts[3];
-  if (parts[4]) s.gistId = parts[4];
-  if (['es-MX', 'es-ES', 'en-US'].indexOf(parts[5]) >= 0) s.lang = parts[5];
-  saveSettings();
-  toast(parts[3] ? 'Dispositivo vinculado. Trayendo tus listas…' : '¡Listo! Ya tenés tu WatchListo. Tus listas se guardan en este dispositivo.');
-  return true;
-}
+/* los links viejos de vinculación (#pair=) traían claves: ya no se usan y se borran de la barra */
+function dropLegacyHash() { if (/^#pair=/.test(location.hash || '')) { try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {} } }
 
 /* ---------- settings ---------- */
 function applyTheme() {
@@ -3670,16 +3607,11 @@ function applyTheme() {
 function fillSettingsForm() {
   var s = state.settings;
   $('#sTmdb').value = s.tmdbKey; $('#sOmdb').value = s.omdbKey; $('#sLang').value = s.lang; $('#sDepth').value = s.depth;
-  $('#sMinVotes').value = s.minVotes; $('#sTheme').value = s.theme; $('#sGh').value = s.ghToken;
-  $('#syncOff').hidden = !s.ghToken;
-  $('#ghCloudHint').hidden = !cloudIn();
-  var st = $('#syncState'); st.dataset.s = s.ghToken ? state.sync.s : 'off'; st.textContent = s.ghToken ? state.sync.status : 'Sin sincronizar.';
-  var ok = canPair();
-  $('#pairShow').disabled = !ok;
-  $('#inviteCopy').disabled = !ok; $('#inviteQr').disabled = !ok;
-  resetInvite();
-  $('#pairHint').textContent = ok ? 'Muestra un código QR con tus claves y la conexión a GitHub. Lo escaneás con la cámara del otro dispositivo y queda listo, sin tipear nada.' : 'Disponible cuando abrís WatchListo desde su dirección web, no como archivo suelto.';
-  hidePair();
+  $('#sMinVotes').value = s.minVotes; $('#sTheme').value = s.theme;
+  /* con cuenta, las claves las administra solo el administrador: a los invitados les llegan solas */
+  var guest = cloudIn() && !CLOUD.admin;
+  $('#keysSet').hidden = guest;
+  $('#keysHint').textContent = cloudIn() && CLOUD.admin ? 'Son las que usan todos tus invitados: si las cambiás acá, les llegan solas.' : 'Se guardan solo en este dispositivo. Si entrás con una cuenta invitada, llegan solas.';
   $$('[data-reveal]').forEach(function (b) { var inp = document.getElementById(b.dataset.reveal); inp.type = 'password'; b.textContent = 'Ver'; });
   showSetErr('');
 }
@@ -3689,9 +3621,8 @@ async function saveSettingsFromForm() {
   s.tmdbKey = $('#sTmdb').value.trim(); s.omdbKey = $('#sOmdb').value.trim();
   s.lang = $('#sLang').value; s.depth = $('#sDepth').value;
   s.minVotes = Math.max(0, Math.min(5000, parseInt($('#sMinVotes').value, 10) || 0)); s.theme = $('#sTheme').value;
-  var gt = $('#sGh').value.trim();
   if (!s.tmdbKey) { showSetErr('La clave de TMDB es obligatoria.'); state.settings = before; return; }
-  if (!TOKEN_CHARS.test(s.tmdbKey) || !TOKEN_CHARS.test(s.omdbKey) || !TOKEN_CHARS.test(gt)) { showSetErr('Alguna clave tiene caracteres raros. Copiala de nuevo, sin espacios.'); state.settings = before; return; }
+  if (!TOKEN_CHARS.test(s.tmdbKey) || !TOKEN_CHARS.test(s.omdbKey)) { showSetErr('Alguna clave tiene caracteres raros. Copiala de nuevo, sin espacios.'); state.settings = before; return; }
   var btn = $('#saveSettings');
   if (s.tmdbKey !== before.tmdbKey) {
     btn.disabled = true; btn.textContent = 'Probando clave…';
@@ -3699,9 +3630,8 @@ async function saveSettingsFromForm() {
     catch (e) { showSetErr(e.code === 'tmdb-auth' ? 'TMDB rechazó esa clave.' : e.message); btn.disabled = false; btn.textContent = 'Guardar'; state.settings = before; return; }
     btn.disabled = false; btn.textContent = 'Guardar';
   }
-  var ghChanged = gt !== before.ghToken;
-  if (ghChanged) { s.ghToken = gt; s.gistId = ''; }
   saveSettings(); applyTheme();
+  if (cloudIn() && CLOUD.admin && (before.tmdbKey !== s.tmdbKey || before.omdbKey !== s.omdbKey)) CLOUD.api.set('config/keys', { tmdb: s.tmdbKey, omdb: s.omdbKey || '', at: Date.now() }).catch(function () { toast('No pude publicar las claves nuevas para tus invitados.'); });
   if (before.omdbKey !== s.omdbKey) state.omdbStop = null;
   var catChanged = before.lang !== s.lang || before.depth !== s.depth || before.minVotes !== s.minVotes || before.region !== s.region;
   var keyChanged = before.tmdbKey !== s.tmdbKey;
@@ -3710,16 +3640,6 @@ async function saveSettingsFromForm() {
   if (catChanged) { state.catalogs = { movie: null, tv: null }; if (before.lang !== s.lang) LS.del('genres'); }
   if (catChanged || keyChanged || !state.catalogs[state.ui.type]) start();
   else refresh(true);
-  if (ghChanged && s.ghToken) syncNow({});
-  if (ghChanged && !s.ghToken) setSync('off', 'Sin sincronizar.');
-}
-function connectFromForm() {
-  var gt = $('#sGh').value.trim();
-  if (!gt) { showSetErr('Pegá el token de GitHub primero.'); return; }
-  if (!TOKEN_CHARS.test(gt)) { showSetErr('El token tiene caracteres raros. Copialo de nuevo, sin espacios.'); return; }
-  showSetErr('');
-  if (gt !== state.settings.ghToken) { state.settings.ghToken = gt; state.settings.gistId = ''; saveSettings(); }
-  syncNow({}).then(function () { if (state.sync.s === 'ok') toast('Sincronización activada.'); });
 }
 function exportUser() {
   var data = JSON.stringify({ app: 'cartelera', v: 2, exportedAt: new Date().toISOString(), user: state.user }, null, 2);
@@ -3751,7 +3671,6 @@ async function start() {
   state.fatal = null; state.booted = true;
   peekCatalog('movie'); peekCatalog('tv');
   refresh();
-  if (state.settings.ghToken) syncNow({ silent: true });
   try {
     await loadGenres();
     renderGenreChips();
@@ -3916,6 +3835,7 @@ function bind() {
     var t = e.target;
     if (!(t instanceof Element)) return;
     if (t.closest('[data-settings]')) { fillSettingsForm(); openDialog($('#dlgSettings')); return; }
+    if (t.closest('[data-gocloud]')) { closeRail(); setView('profile'); window.scrollTo(0, 0); return; }
     if (t.closest('[data-reload]')) { var ty = state.ui.type; state.catalogs[ty] = null; LS.del('catalog.' + ty); refresh(); loadCatalogAndRefresh(ty); return; }
     if (t.closest('[data-fill]')) { wantRatings(state.filtered.slice(0, Math.max(0, 1000 - omdbUsage().n))); toast('Trayendo ratings de OMDb, empezando por las primeras de la lista.'); return; }
     if (t.closest('[data-clear]')) { clearFilters(); return; }
@@ -4118,7 +4038,7 @@ function bind() {
   $('#profile').addEventListener('click', function (e) { var b = e.target.closest('[data-pf]'); if (b && !b.disabled) profileAct(b.dataset.pf, b.dataset.v || ''); });
   $('#profile').addEventListener('submit', function (e) {
     e.preventDefault();
-    if (e.target.id === 'invForm') { var em = $('#invEmail').value, nm = $('#invName').value; inviteAdd(em, nm).then(function (ok) { if (ok) toast('Invitado. Ahora mandale el link.'); }, function (err) { toast(isDenied(err) ? 'Solo el administrador puede invitar.' : 'No pude guardar la invitación.'); }); return; }
+    if (e.target.id === 'invForm') { var em = $('#invEmail').value, nm = $('#invName').value; inviteAdd(em, nm).then(function (ok) { if (ok) { toast('Invitado. Ahora mandale el link.'); var a = $('#invEmail'), b = $('#invName'); if (a) a.value = ''; if (b) b.value = ''; } }, function (err) { toast(isDenied(err) ? 'Solo el administrador puede invitar.' : 'No pude guardar la invitación.'); }); return; }
     var inp = $('#pfName'); if (inp) { state.settings.myName = inp.value.replace(/[<>]/g, '').trim().slice(0, 30); saveSettings(); inp.blur(); toast('Listo.'); renderProfile(); } });
   $('#profile').addEventListener('focusout', function (e) { if (e.target.id === 'pfName') { var v = e.target.value.replace(/[<>]/g, '').trim().slice(0, 30); if (v !== (state.settings.myName || '')) { state.settings.myName = v; saveSettings(); } } });
   $('#tabbar').addEventListener('click', function (e) {
@@ -4148,7 +4068,6 @@ function bind() {
     var b = e.target.closest('[data-duo]'); if (!b || b.disabled) return;
     duoAct(b.dataset.duo, b.dataset.v || '', b).catch(function (err) { if (err && err.fatal) fatal(err); else if (err) toast(err.message); });
   });
-  $('#duoOpenFromSettings').addEventListener('click', function () { closeDialog($('#dlgSettings')); openDuo(); });
 
   /* el acomodador */
   var dg = $('#dlgGuide');
@@ -4161,23 +4080,15 @@ function bind() {
   /* settings dialog */
   var ds = $('#dlgSettings');
   ds.addEventListener('click', function (e) {
-    if (e.target === ds || e.target.closest('[data-close]')) { hidePair(); closeDialog(ds); return; }
+    if (e.target === ds || e.target.closest('[data-close]')) { closeDialog(ds); return; }
     var r = e.target.closest('[data-reveal]'); if (r) { var inp = document.getElementById(r.dataset.reveal); var show = inp.type === 'password'; inp.type = show ? 'text' : 'password'; r.textContent = show ? 'Ocultar' : 'Ver'; }
   });
-  ds.addEventListener('close', hidePair);
   $('#setForm').addEventListener('submit', function (e) { e.preventDefault(); saveSettingsFromForm(); });
-  $('#syncNow').addEventListener('click', connectFromForm);
-  $('#syncOff').addEventListener('click', disconnectSync);
-  $('#pairShow').addEventListener('click', showPair);
-  $('#inviteCopy').addEventListener('click', inviteCopy);
-  $('#inviteQr').addEventListener('click', inviteQr);
-  $('#inviteOmdb').addEventListener('change', resetInvite);
-  $('#pairHide').addEventListener('click', hidePair);
   $('#exportBtn').addEventListener('click', exportUser);
   $('#importFile').addEventListener('change', function (e) { var f = e.target.files[0]; if (f) importFile(f); e.target.value = ''; });
   $('#clearCache').addEventListener('click', function () {
-    ['catalog.movie', 'catalog.tv', 'providers.movie', 'providers.tv', 'genres', 'details', 'omdb'].forEach(function (k) { LS.del(k); });
-    state.catalogs = { movie: null, tv: null }; state.providers = { movie: null, tv: null }; state.details = {}; state.omdb = {};
+    ['catalog.movie', 'catalog.tv', 'providers.movie', 'providers.tv', 'provraw.movie', 'provraw.tv', 'genres', 'details', 'omdb', 'stremio', 'jw'].forEach(function (k) { LS.del(k); });
+    state.catalogs = { movie: null, tv: null }; state.providers = { movie: null, tv: null }; state.details = {}; state.omdb = {}; ST.cache = {}; JW.cache = {};
     closeDialog(ds); toast('Caché borrada. Vuelvo a leer el catálogo.'); start();
   });
 
@@ -4200,9 +4111,6 @@ function bind() {
     if (e.key === 'Escape') { closeMenu(); closeRail(); }
     if (e.key === '/' && !/input|textarea|select/i.test(document.activeElement.tagName) && !document.querySelector('dialog[open]')) { e.preventDefault(); $('#q').focus(); }
   });
-  document.addEventListener('visibilitychange', function () { if (!document.hidden && state.settings.ghToken && Date.now() - state.sync.last > 20000) syncNow({ silent: true }); });
-  window.addEventListener('online', function () { if (state.settings.ghToken) syncNow({ silent: true }); });
-  setInterval(function () { if (!document.hidden && state.settings.ghToken && Date.now() - state.sync.last > 170000) syncNow({ silent: true }); }, 60000);
   window.addEventListener('storage', function (e) {
     if (e.key === LS.p + 'user' && e.newValue) { try { state.user = mergeUsers(state.user, normUser(JSON.parse(e.newValue))); refresh(true); } catch (x) {} }
   });
@@ -4216,7 +4124,7 @@ function registerSW() {
 function boot() {
   navInit();
   applyTheme();
-  readPairHash();
+  dropLegacyHash();
   renderDuoBtn();
   loadCuraduria();
   bind();
@@ -4237,6 +4145,6 @@ function boot() {
   start();
 }
 
-if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') window.__cartelera = { state: state, refresh: refresh, scoreFor: scoreFor, recommend: recommend, curFind: curFind, cur: function () { return CUR; }, openFest: openFest, openGuide: openGuide, rumboOf: rumboOf, rumboOut: rumboOut, itemLabels: itemLabels, openDuo: openDuo, packTaste: packTaste, unpackTaste: unpackTaste, comps: function () { return COMP; }, cloud: function () { return CLOUD; }, cloudSyncModel: cloudSyncModel, allComps: allComps, seenNow: seenNow, guide: function () { return state.guide; }, tasteProfile: tasteProfile, tasteSeeds: tasteSeeds, inviteUrl: inviteUrl, openReco: openReco, openPerson: openPerson, allSig: allSig, mergeUsers: mergeUsers, normUser: normUser, contentKey: contentKey, listKeys: listKeys, pairUrl: pairUrl, syncNow: syncNow, services: function () { return { list: SERVICES, stremio: STREMIO_ON, sig: SVC_SIG }; }, st: function () { return ST; }, isHidden: isHidden, hiddenKeys: hiddenKeys, serviceCatalog: serviceCatalog, summarizeStreams: summarizeStreams };
+if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') window.__cartelera = { state: state, refresh: refresh, scoreFor: scoreFor, recommend: recommend, curFind: curFind, cur: function () { return CUR; }, openFest: openFest, openGuide: openGuide, rumboOf: rumboOf, rumboOut: rumboOut, itemLabels: itemLabels, openDuo: openDuo, packTaste: packTaste, unpackTaste: unpackTaste, comps: function () { return COMP; }, cloud: function () { return CLOUD; }, cloudSyncModel: cloudSyncModel, allComps: allComps, seenNow: seenNow, guide: function () { return state.guide; }, tasteProfile: tasteProfile, tasteSeeds: tasteSeeds, openReco: openReco, openPerson: openPerson, allSig: allSig, mergeUsers: mergeUsers, normUser: normUser, contentKey: contentKey, listKeys: listKeys, services: function () { return { list: SERVICES, stremio: STREMIO_ON, sig: SVC_SIG }; }, st: function () { return ST; }, isHidden: isHidden, hiddenKeys: hiddenKeys, serviceCatalog: serviceCatalog, summarizeStreams: summarizeStreams };
 boot();
 })();

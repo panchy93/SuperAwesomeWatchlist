@@ -4,10 +4,9 @@ Catálogo personal de tus servicios de streaming en Argentina (Netflix, Prime Vi
 
 ## Seguridad
 
-- El repositorio no contiene ninguna clave. Las claves de TMDB, OMDb y el token de GitHub se guardan solo en el navegador de cada dispositivo.
-- La página tiene una política de seguridad de contenido estricta: no ejecuta scripts de terceros ni código embebido, y solo se conecta con TMDB, OMDb, GitHub, Firebase, Torrentio y el Worker propio que consulta JustWatch. El único contenido externo embebido es el reproductor de tráileres de YouTube (dominio sin cookies, en un marco aislado).
-- Las listas se sincronizan en un Gist secreto. El token de GitHub necesita únicamente el permiso **Gists: Read and write**.
-- Si perdés un dispositivo, revocá el token en GitHub (Settings → Developer settings → Personal access tokens) y creá uno nuevo.
+- El repositorio no contiene ninguna clave. Las claves de TMDB y OMDb se guardan en el navegador de cada dispositivo; con cuenta, el administrador las publica en Firestore y solo las leen los invitados.
+- La página tiene una política de seguridad de contenido estricta: no ejecuta scripts de terceros ni código embebido, y solo se conecta con TMDB, OMDb, Firebase, Torrentio y el Worker propio que consulta JustWatch. El único contenido externo embebido es el reproductor de tráileres de YouTube (dominio sin cookies, en un marco aislado).
+- Las listas se sincronizan con la cuenta de Google (Firestore). La sincronización vieja por GitHub (Gist) y el código QR para vincular dispositivos se sacaron: al abrir la app, el token de GitHub que hubiera quedado guardado se borra del dispositivo.
 
 Este producto usa la API de TMDB pero no está avalado ni certificado por TMDB. Disponibilidad en streaming provista por JustWatch a través de TMDB.
 
@@ -51,6 +50,8 @@ Opcional: sin sesión todo sigue funcionando en el dispositivo. Con **Entrar con
 - **Listas y festivales compartidos:** desde la barra de listas, "Compartir" con uno o más buddies. Cada cambio se guarda campo por campo, así dos personas pueden editar a la vez. Un festival compartido de a dos se programa con el gusto de los dos.
 - **OMDb compartido:** cada puntaje se consulta una vez y queda guardado para todos.
 - **Invitados:** el administrador los maneja desde Perfil → Invitados. Solo esos mails pueden entrar.
+- **Pedidos de acceso:** quien entra con Google sin estar invitado toca **Pedir acceso**. El pedido aparece arriba de todo en Perfil del administrador (con un aviso rojo en la pestaña Perfil); al aprobarlo, la otra persona entra sola, sin volver a loguearse.
+- **Links para compartir:** la invitación a watch buddy y el link para invitados van con un mensaje corto que cuenta qué hace la app.
 
 La configuración web de Firebase está en `app.js` (no es secreta). Quién puede leer y escribir qué lo deciden las reglas de `firestore.rules`, que se pegan en Firebase → Firestore → Reglas.
 
@@ -68,7 +69,7 @@ Las fichas muestran dirección, guion, música y fotografía. Cada nombre abre s
 
 ## Tus servicios
 
-En **Perfil → Tus servicios** se prenden los que tenés, de la lista de servicios por suscripción que JustWatch informa para Argentina (las variantes con anuncios se agrupan, las tiendas de alquiler y los canales no aparecen). El catálogo, los filtros, el acomodador y los badges usan solo esos. La elección viaja con tus datos (Gist o cuenta), así que vale en todos tus dispositivos.
+En **Perfil → Tus servicios** se prenden los que tenés, de la lista de servicios por suscripción que JustWatch informa para Argentina (las variantes con anuncios se agrupan, las tiendas de alquiler y los canales no aparecen). El catálogo, los filtros, el acomodador y los badges usan solo esos. La elección viaja con tus datos, así que vale en todos tus dispositivos.
 
 ## Stremio (vía Torrentio)
 

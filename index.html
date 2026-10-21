@@ -2,7 +2,7 @@
 <html lang="es-AR">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' https://www.gstatic.com https://apis.google.com; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' https://image.tmdb.org https://i.ytimg.com; connect-src 'self' https://api.themoviedb.org https://www.omdbapi.com https://api.github.com https://gist.githubusercontent.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://www.googleapis.com https://torrentio.strem.fun https://watchlisto-jw.pfiguerero.workers.dev; frame-src https://watchlisto-de547.firebaseapp.com https://www.youtube-nocookie.com; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' https://www.gstatic.com https://apis.google.com; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' https://image.tmdb.org https://i.ytimg.com; connect-src 'self' https://api.themoviedb.org https://www.omdbapi.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://www.googleapis.com https://torrentio.strem.fun https://watchlisto-jw.pfiguerero.workers.dev; frame-src https://watchlisto-de547.firebaseapp.com https://www.youtube-nocookie.com; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
 <meta name="referrer" content="no-referrer">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark light">
@@ -34,7 +34,6 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800&family=Schibsted+Grotesk:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap">
 <link rel="stylesheet" href="styles.css">
-<script src="qr.js" defer></script>
 <script src="app.js" defer></script>
 </head>
 <body>
@@ -140,10 +139,10 @@
 
   <main class="main" id="main">
     <section class="onboard" id="onboard" hidden>
-      <h2>Tus cuatro servicios, una sola <span>lista</span></h2>
-      <p>Netflix, Prime Video, Disney+ y HBO Max de Argentina en una sola grilla, con filtros por género y rating y listas propias. Para leer los catálogos necesito una clave gratuita de TMDB, la base de datos que usa JustWatch.</p>
-      <div class="ob-cloud"><p><b>¿Te invitaron?</b> Entrá con tu cuenta de Google y queda todo configurado, sin claves.</p><div id="obCloud"></div></div>
-      <p><b>¿Ya la usás en otro dispositivo?</b> Ahí abrí Ajustes → Vincular otro dispositivo y escaneá el código con la cámara de este. Queda todo configurado, listas incluidas.</p>
+      <h2>Tus servicios de streaming, una sola <span>lista</span></h2>
+      <p>Netflix, Prime Video, Disney+, HBO Max y los que tengas, en una sola grilla con filtros, puntajes de IMDb y Rotten Tomatoes, festivales y listas propias o compartidas.</p>
+      <div class="ob-cloud"><p><b>¿Te invitaron o ya la usás en otro dispositivo?</b> Entrá con tu cuenta de Google: queda todo configurado, sin claves, y tus listas te siguen a cualquier dispositivo.</p><div id="obCloud"></div></div>
+      <p class="ob-alt"><b>¿Sin invitación?</b> Podés usarla igual con una clave gratuita de TMDB (la base de datos que usa JustWatch). Tus listas quedan solo en este dispositivo.</p>
       <ol class="steps">
         <li>Creá una cuenta en <a href="https://www.themoviedb.org/signup" target="_blank" rel="noopener noreferrer">themoviedb.org</a>.</li>
         <li>Andá a <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener noreferrer">Configuración → API</a>, pedí una clave de uso personal y copiá el <b>Token de acceso de lectura</b> (o la Clave de la API).</li>
@@ -242,49 +241,9 @@
     <button class="dlg-x" type="button" data-close aria-label="Cerrar"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
     <h2 id="setTitle">Ajustes</h2>
 
-    <fieldset>
-      <legend>Sincronizar listas entre dispositivos</legend>
-      <p class="hint gh-cloud" id="ghCloudHint" hidden>Ya estás guardando todo en tu cuenta de Google, así que esto es opcional: sirve solo como respaldo. Si te da errores, desconectalo y revocá el token en GitHub.</p>
-      <p class="hint">Tus listas se guardan en un Gist secreto de tu cuenta de GitHub. Hace falta un token que solo pueda tocar Gists:</p>
-      <ol class="steps-sm">
-        <li>Abrí <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener noreferrer">github.com/settings/personal-access-tokens/new</a> (token de tipo Fine-grained).</li>
-        <li>Nombre: <span class="kbd">WatchListo</span>. Vencimiento: un año.</li>
-        <li>En <b>Permissions → Account permissions → Gists</b> elegí <b>Read and write</b>. Ningún otro permiso, ningún repositorio.</li>
-        <li>Generalo, copialo y pegalo acá abajo.</li>
-      </ol>
-      <label class="field">Token de GitHub<span class="pw"><input class="inp" id="sGh" type="password" spellcheck="false" autocomplete="off" placeholder="github_pat_…"><button class="btn" type="button" data-reveal="sGh">Ver</button></span></label>
-      <div class="row"><button class="btn btn-accent" type="button" id="syncNow">Conectar y sincronizar</button><button class="btn btn-ghost" type="button" id="syncOff" hidden>Desconectar este dispositivo</button></div>
-      <p class="sync-state" id="syncState" data-s="off">Sin sincronizar.</p>
-    </fieldset>
-
-    <fieldset id="pairSet">
-      <legend>Vincular otro dispositivo</legend>
-      <p class="hint" id="pairHint">Muestra un código QR con tus claves y la conexión a GitHub. Lo escaneás con la cámara del otro dispositivo y queda listo, sin tipear nada.</p>
-      <div class="row"><button class="btn" type="button" id="pairShow">Mostrar código QR</button></div>
-      <div class="pairbox" id="pairBox" hidden>
-        <div class="qr" id="pairQr"></div>
-        <p class="hint"><span class="warn">Este código contiene tus claves.</span> No le saques captura ni lo compartas. Se oculta solo en dos minutos. <button class="linkbtn" type="button" id="pairHide">Ocultar ahora</button></p>
-      </div>
-    </fieldset>
-
-    <fieldset id="inviteSet">
-      <legend>Invitar a alguien</legend>
-      <p class="hint">Para tu pareja o tus amigos. La invitación lleva solo las claves de los catálogos, nunca tu conexión a GitHub ni tus listas. Cada persona arma sus propias listas, que quedan guardadas en su celu. Conviene que la instalen en la pantalla de inicio: así el teléfono no borra las listas.</p>
-      <label class="check"><input type="checkbox" id="inviteOmdb" checked>Incluir la clave de OMDb (comparten el límite de 1.000 consultas por día)</label>
-      <div class="row"><button class="btn" type="button" id="inviteCopy">Copiar link de invitación</button><button class="btn btn-ghost" type="button" id="inviteQr">Mostrar QR</button></div>
-      <label class="sr" for="inviteOut">Link de invitación</label>
-      <input class="inp" id="inviteOut" readonly hidden>
-      <div class="pairbox" id="inviteBox" hidden><div class="qr" id="inviteQrBox"></div><p class="hint">Que lo escaneen con la cámara del celu.</p></div>
-    </fieldset>
-
-    <fieldset>
-      <legend>Ver de a dos</legend>
-      <p class="hint">Compartí tu gusto con otra persona o cargá el suyo para que las recomendaciones, los festivales y el acomodador piensen en los dos.</p>
-      <div class="row"><button class="btn" type="button" id="duoOpenFromSettings">Abrir De a dos</button></div>
-    </fieldset>
-
-    <fieldset>
+    <fieldset id="keysSet">
       <legend>Claves de los catálogos</legend>
+      <p class="hint" id="keysHint">Se guardan solo en este dispositivo.</p>
       <label class="field">TMDB<span class="pw"><input class="inp" id="sTmdb" type="password" spellcheck="false" autocomplete="off"><button class="btn" type="button" data-reveal="sTmdb">Ver</button></span></label>
       <label class="field">OMDb (IMDb, Rotten Tomatoes, Metacritic)<span class="pw"><input class="inp" id="sOmdb" type="password" spellcheck="false" autocomplete="off" placeholder="Opcional"><button class="btn" type="button" data-reveal="sOmdb">Ver</button></span></label>
     </fieldset>

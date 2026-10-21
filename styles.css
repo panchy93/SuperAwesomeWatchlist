@@ -586,3 +586,8 @@ a.sb.c-stremio:hover{background:var(--c);color:var(--bg)}
 .install-steps{text-align:left;margin:0;align-self:stretch}
 body.gated{overflow:hidden}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+
+/* aviso de pedidos de acceso pendientes (administrador) */
+.has-badge{position:relative}
+.has-badge::after{content:attr(data-badge);position:absolute;top:2px;right:calc(50% - 22px);min-width:17px;height:17px;padding:0 4px;border-radius:999px;background:var(--danger);color:#fff;font-size:10.5px;font-weight:800;line-height:17px;text-align:center;box-shadow:0 0 0 2px var(--bg)}
+#viewSeg .has-badge::after{top:-6px;right:-6px}
