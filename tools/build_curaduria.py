@@ -614,7 +614,6 @@ predator|Predator|-|1987|m|accion,scifi,criaturas|supervivencia,violencia|tenso,
 mission-impossible-fallout|Mission: Impossible - Fallout|-|2018|m|accion,espias|lealtad,traicion|frenetico|accion|top-gun-maverick,john-wick,die-hard
 top-gun-maverick|Top Gun: Maverick|-|2022|m|accion,aventura|duelo,lealtad,vejez|epico,emotivo|accion|mission-impossible-fallout,mad-max-fury-road
 kill-bill|Kill Bill: Vol. 1|-|2003|m|accion,artes-marciales|venganza,maternidad|estiloso,sangriento|accion|lady-snowblood,john-wick,pulp-fiction
-rrr|RRR|-|2022|m|accion,epico,musical|amistad,colonialismo,rebelion|epico,frenetico|accion|mad-max-fury-road,top-gun-maverick
 raiders|Raiders of the Lost Ark|-|1981|m|aventura,accion|fe,poder|divertido,pulp|aventura|jurassic-park,back-to-the-future,the-princess-bride
 jurassic-park|Jurassic Park|-|1993|m|aventura,scifi,criaturas|ciencia,naturaleza,paternidad|epico,tenso|aventura|raiders,jaws
 back-to-the-future|Back to the Future|-|1985|m|aventura,viajes-tiempo,humor|familia,tiempo,adolescencia|divertido,luminoso|aventura|raiders,groundhog-day

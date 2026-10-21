@@ -41,6 +41,7 @@
     <label class="sortwrap"><span class="sr">Ordenar por</span><select id="sort" class="sel"></select></label>
     <button class="btn" id="openFest" type="button"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linejoin="round"><path d="M4 7h16v3a2 2 0 0 0 0 4v3H4v-3a2 2 0 0 0 0-4z"/><path d="M14.5 7.5v9" stroke-dasharray="1.6 2.2"/></svg>Festivales</button>
     <button class="btn btn-accent" id="pick" type="button"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3"/><circle cx="9" cy="9" r="1.2" fill="currentColor"/><circle cx="15" cy="15" r="1.2" fill="currentColor"/><circle cx="15" cy="9" r="1.2" fill="currentColor"/><circle cx="9" cy="15" r="1.2" fill="currentColor"/></svg>Elegime una</button>
+    <button class="btn icon-btn duo-btn" id="duoBtn" type="button" aria-label="Ver de a dos" title="Ver de a dos"></button>
     <button class="btn icon-btn" id="openSettings" type="button" aria-label="Ajustes" title="Ajustes"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
   </div>
   <div class="progress" id="progress" hidden><span></span></div>
@@ -115,6 +116,7 @@
 
     <section class="rsec">
       <label class="check"><input type="checkbox" id="hideSeen">Ocultar lo que ya vi</label>
+      <label class="check"><input type="checkbox" id="noIndia">Ocultar cine de la India (Bollywood y cía.)</label>
       <button class="linkbtn" id="clearFilters" type="button">Limpiar filtros</button>
     </section>
 
@@ -163,6 +165,14 @@
 </div>
 
 <dialog id="dlgDetail" aria-label="Ficha del título"><div id="detail"></div></dialog>
+
+<dialog id="dlgDuo" aria-labelledby="duoTitle">
+  <div class="guide">
+    <button class="dlg-x" type="button" data-close aria-label="Cerrar"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+    <h2 class="duo-title" id="duoTitle">De a dos</h2>
+    <div id="duoBody"></div>
+  </div>
+</dialog>
 
 <dialog id="dlgGuide" aria-labelledby="guideSay">
   <div class="guide">
@@ -238,6 +248,12 @@
       <label class="sr" for="inviteOut">Link de invitación</label>
       <input class="inp" id="inviteOut" readonly hidden>
       <div class="pairbox" id="inviteBox" hidden><div class="qr" id="inviteQrBox"></div><p class="hint">Que lo escaneen con la cámara del celu.</p></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Ver de a dos</legend>
+      <p class="hint">Compartí tu gusto con otra persona o cargá el suyo para que las recomendaciones, los festivales y el acomodador piensen en los dos.</p>
+      <div class="row"><button class="btn" type="button" id="duoOpenFromSettings">Abrir De a dos</button></div>
     </fieldset>
 
     <fieldset>

@@ -49,7 +49,7 @@ svg.i{width:16px;height:16px;flex:none}
 .seg button{border:0;background:transparent;padding:6px 12px;border-radius:999px;font-weight:600;font-size:14px;color:var(--muted)}
 .seg button[aria-pressed="true"]{background:var(--surface-2);color:var(--fg)}
 .seg-sm button{padding:3px 9px;font-size:12px;letter-spacing:0;text-transform:none}
-.search{flex:1 1 200px;min-width:0;position:relative;display:block}
+.search{flex:1 1 150px;min-width:0;position:relative;display:block}
 .search input{width:100%;padding:9px 12px 9px 34px;border-radius:999px;border:1px solid var(--line);background:var(--surface)}
 .search svg{position:absolute;left:12px;top:50%;margin-top:-8px;color:var(--muted)}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--line);background:var(--surface);padding:8px 13px;border-radius:999px;font-weight:600;font-size:14px;white-space:nowrap;text-decoration:none;color:var(--fg)}
@@ -386,5 +386,43 @@ dialog[open].fallback{position:fixed;top:14px;left:0;right:0;margin:0 auto;z-ind
   .g-duel{gap:8px}
   .g-vs{font-size:20px}
   .g-card{grid-template-columns:90px minmax(0,1fr);gap:12px}
+}
+/* De a dos */
+#dlgDuo{width:min(760px,calc(100vw - 20px))}
+.duo-btn.on{width:auto;padding:0 12px;gap:7px;border-color:var(--accent);color:var(--accent)}
+.duo-btn span{font-size:14px;font-weight:600;max-width:120px;overflow:hidden;text-overflow:ellipsis}
+.duo-title{font:800 32px/1 var(--f-display);margin:4px 0 0;padding-right:48px;text-transform:uppercase;letter-spacing:.02em}
+.duo-sec{margin-top:24px}
+.duo-sec .hint{margin:8px 0 0}
+.duo-sec .fest-row{margin-top:12px}
+.duo-imp{border:1px solid var(--accent);border-radius:12px;padding:14px 16px;background:var(--surface)}
+.duo-imp p{margin:0 0 10px}
+.duo-venn{display:grid;grid-template-columns:minmax(0,260px) minmax(0,1fr);gap:18px;align-items:center}
+.venn{width:100%;height:auto;display:block}
+.venn .va{fill:var(--accent);fill-opacity:.2;stroke:var(--accent);stroke-width:2}
+.venn .vb{fill:var(--svc-prime);fill-opacity:.18;stroke:var(--svc-prime);stroke-width:2}
+.venn text{fill:var(--fg);text-anchor:middle;font-family:var(--f-body)}
+.venn .vl{font-size:12px;font-weight:600;fill:var(--muted)}
+.venn .vn{font:800 24px/1 var(--f-display);fill:var(--fg)}
+.venn .vs{font-size:10.5px;font-weight:600;fill:var(--muted)}
+.duo-lines{display:flex;flex-direction:column;gap:8px;min-width:0}
+.duo-line{margin:0;font-size:13.5px;line-height:1.4}
+.duo-line b{display:block;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.duo-line .muted{color:var(--muted)}
+.duo-people{list-style:none;margin:10px 0 0;padding:0;display:flex;flex-direction:column;gap:6px}
+.duo-people li{display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid var(--line);border-radius:10px;padding:8px 8px 8px 14px;background:var(--surface)}
+.duo-people span{display:flex;flex-direction:column;min-width:0}
+.duo-people small{color:var(--muted);font-size:12px}
+.duo-new{display:flex;gap:8px;margin-top:10px}
+.duo-new .inp{flex:1 1 auto}
+#duoOut{margin-top:10px;font-size:12px}
+.duo-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin-top:10px;padding:10px 12px;border:1px dashed var(--line);border-radius:10px}
+.duo-who{display:inline-flex;align-items:center;gap:6px;font-weight:700}
+.duo-row .hint{flex-basis:100%;margin:0}
+.g-with{margin:-6px 0 16px}
+@media (max-width:560px){
+  .duo-venn{grid-template-columns:minmax(0,1fr)}
+  .venn{max-width:300px;margin:0 auto}
+  .duo-btn span{max-width:80px}
 }
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}

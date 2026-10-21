@@ -13,7 +13,7 @@ Este producto usa la API de TMDB pero no está avalado ni certificado por TMDB. 
 
 ## Curaduría
 
-`curaduria.json` tiene etiquetas hechas a mano (subgénero, temas, tono, sección y parientes) para unos 635 títulos, repartidos en 51 secciones y 15 géneros (terror, ciencia ficción, thriller y crimen, drama, cine argentino y latino, comedia, romance, animación, acción y aventura, fantasía, bélico, western, música, documental y series). Las recomendaciones las usan cuando el título está en la base, y el botón **Festivales** arma un festival a partir de cualquier sección. Se regenera con `python3 tools/build_curaduria.py`, que valida el vocabulario, que cada pariente exista y que cada sección pertenezca a un solo género.
+`curaduria.json` tiene etiquetas hechas a mano (subgénero, temas, tono, sección y parientes) para unos 634 títulos, repartidos en 51 secciones y 15 géneros (terror, ciencia ficción, thriller y crimen, drama, cine argentino y latino, comedia, romance, animación, acción y aventura, fantasía, bélico, western, música, documental y series). Las recomendaciones las usan cuando el título está en la base, y el botón **Festivales** arma un festival a partir de cualquier sección. Se regenera con `python3 tools/build_curaduria.py`, que valida el vocabulario, que cada pariente exista y que cada sección pertenezca a un solo género.
 
 ## Festivales y tu gusto
 
@@ -24,3 +24,16 @@ Las vistas y las estrellas afinan las recomendaciones y los festivales: 5★ y 4
 ## El acomodador
 
 "Elegime una" abre un asistente que pregunta qué tipo de título, con qué ganas, qué género, hace tres duelos entre títulos conocidos ("¿más esta o más aquella?") y pide época, duración y dónde verla. Con las respuestas arma un perfil de etiquetas de la curaduría, elige títulos base y usa el mismo motor de recomendaciones, que ya tiene en cuenta vistas y estrellas. Con varios títulos puntuados ofrece elegir "a ciegas" directo desde tu gusto, y sigue estando la opción de una al azar con los filtros del momento.
+
+## De a dos
+
+Para elegir con otra persona. Cada uno puede generar un link con su gusto (lo que vio y sus estrellas, sin claves ni listas) desde **De a dos → Compartir mi gusto**; al abrirlo en otro WatchListo queda guardado en ese dispositivo. También se puede crear un perfil a mano y marcar en cada ficha lo que vio la otra persona. Con el modo de a dos activo:
+
+- Se oculta solo lo que vieron los dos. Lo que vio uno solo puede aparecer, salvo que lo haya puntuado con 1 o 2 estrellas.
+- El perfil de gusto combina a los dos: lo que les gustó a ambos pesa más y lo que a uno no le gustó resta aunque el otro no lo haya visto.
+- Recomendaciones, festivales y El acomodador usan ese perfil, y explican si una la vio uno solo ("Juli la vio y le encantó; vos no").
+
+## Otros detalles
+
+- **Cine de la India:** el filtro "Ocultar cine de la India" (activado por defecto) saca Bollywood y las demás industrias indias por idioma original, en catálogo, recomendaciones y festivales. Las búsquedas por título y tus listas no se filtran.
+- **Botón Atrás:** cada ficha, diálogo o vista especial suma una entrada al historial, así Atrás vuelve a la pantalla anterior (por ejemplo, de "Más como esta" a la ficha de la que venías). En la pantalla principal hay que tocarlo dos veces seguidas para salir.

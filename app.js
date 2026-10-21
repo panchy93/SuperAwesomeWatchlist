@@ -67,8 +67,8 @@ var SORTS_PERSON = [['year', 'Más nuevas'], ['rating', 'Mejor rating'], ['popul
 var SORTS_SEARCH = [['relevance', 'Relevancia']];
 var KW_STOP = new Set(['woman director', 'duringcreditsstinger', 'aftercreditsstinger', 'sequel', 'prequel', 'remake', 'independent film', 'live action remake', '3d', 'imax', 'short film', 'directorial debut', 'female protagonist', 'male protagonist', 'christmas', 'new year', 'anime', 'lgbt interest', 'shot on 35mm', 'black and white']);
 
-var DEFAULT_SETTINGS = { tmdbKey: '', omdbKey: '', lang: 'es-MX', region: 'AR', depth: 'normal', minVotes: 30, theme: 'system', ghToken: '', gistId: '' };
-function defaultFilters() { return { services: SERVICES.map(function (s) { return s.key; }), ratingSrc: 'tmdb', ratingMin: 0, includeUnknown: false, genres: {}, genreMode: 'any', yearFrom: '', yearTo: '', maxRuntime: 0, hideSeen: true, people: [], onlyMine: false }; }
+var DEFAULT_SETTINGS = { tmdbKey: '', omdbKey: '', lang: 'es-MX', region: 'AR', depth: 'normal', minVotes: 30, theme: 'system', ghToken: '', gistId: '', myName: '' };
+function defaultFilters() { return { services: SERVICES.map(function (s) { return s.key; }), ratingSrc: 'tmdb', ratingMin: 0, includeUnknown: false, genres: {}, genreMode: 'any', yearFrom: '', yearTo: '', maxRuntime: 0, hideSeen: true, noIndia: true, people: [], onlyMine: false }; }
 
 /* ---------- user data: lists, seen, stars (sync-friendly) ----------
    Every change carries a timestamp. Two copies merge by keeping the newest
@@ -82,7 +82,7 @@ function cleanSnap(s, k) {
   var type = k.charAt(0) === 'm' ? 'movie' : 'tv', num = function (v) { v = +v; return isFinite(v) ? v : 0; };
   return {
     k: k, id: parseInt(k.slice(2), 10), type: type,
-    t: String(s.t || 'Sin título').slice(0, 300), ot: String(s.ot || '').slice(0, 300),
+    t: String(s.t || 'Sin título').slice(0, 300), ot: String(s.ot || '').slice(0, 300), l: /^[a-z]{2,3}$/.test(s.l || '') ? s.l : '',
     y: s.y ? parseInt(s.y, 10) || null : null,
     g: Array.isArray(s.g) ? s.g.filter(function (x) { return typeof x === 'number'; }).slice(0, 12) : [],
     v: num(s.v), vc: num(s.vc), pop: num(s.pop), p: safePath(s.p)
@@ -289,14 +289,17 @@ async function pool(items, limit, fn, onEach) {
 }
 
 /* ---------- catalog ---------- */
-function catSig() { var s = state.settings; return [s.region, s.lang, s.depth, s.minVotes, 'v1'].join('|'); }
+function catSig() { var s = state.settings; return [s.region, s.lang, s.depth, s.minVotes, 'v2'].join('|'); }
+/* cine de la India (Bollywood, Tollywood, Kollywood y demás), por idioma original */
+var INDIAN_LANGS = new Set(['hi', 'ta', 'te', 'ml', 'kn', 'bn', 'mr', 'pa', 'gu', 'or', 'as']);
+function isIndian(it) { return !!(it && it.l && INDIAN_LANGS.has(it.l)); }
 function itemKey(type, id) { return (type === 'movie' ? 'm:' : 't:') + id; }
 function typeOfKey(k) { return k.charAt(0) === 'm' ? 'movie' : 'tv'; }
 function norm(r, type) {
   var date = r.release_date || r.first_air_date || '';
   return {
     k: itemKey(type, r.id), id: r.id, type: type,
-    t: r.title || r.name || 'Sin título', ot: r.original_title || r.original_name || '',
+    t: r.title || r.name || 'Sin título', ot: r.original_title || r.original_name || '', l: String(r.original_language || '').slice(0, 3),
     y: parseInt(String(date).slice(0, 4), 10) || null, g: r.genre_ids || (r.genres || []).map(function (g) { return g.id; }),
     v: Math.round((r.vote_average || 0) * 10) / 10, vc: r.vote_count || 0, pop: Math.round(r.popularity || 0),
     p: safePath(r.poster_path), s: []
@@ -578,6 +581,7 @@ function applyFilters(list) {
   Object.keys(f.genres).forEach(function (n) { if (f.genres[n] === 1) inc.push(n); else if (f.genres[n] === -1) exc.push(n); });
   var yFrom = parseInt(f.yearFrom, 10) || 0, yTo = parseInt(f.yearTo, 10) || 0;
   var hideSeen = f.hideSeen && !(state.ui.view === 'lists' && state.ui.list === 'seen' && !state.special);
+  var noIndia = f.noIndia && !(state.ui.view === 'lists' && !state.special) && !(state.special && state.special.kind === 'search');
   var pk = null;
   if (f.people.length && !(state.special && state.special.kind === 'person')) {
     pk = [];
@@ -591,7 +595,8 @@ function applyFilters(list) {
     if (mine && !it.s.some(function (s) { return services.has(s); })) return false;
     if (open && f.onlyMine && !svcOf(it).length) return false;
     if (pk && !pk.some(function (set) { return set.has(it.k); })) return false;
-    if (hideSeen && isSeen(it.k)) return false;
+    if (hideSeen && seenNow(it.k)) return false;
+    if (noIndia && isIndian(it)) return false;
     if (q && fold(it.t).indexOf(q) < 0 && fold(it.ot).indexOf(q) < 0) return false;
     if (inc.length || exc.length) {
       var names = genreNames(it);
@@ -731,6 +736,7 @@ function refresh(keepLimit) {
   $('#reflowBtn').hidden = true;
   renderTop(); renderListbar(); renderSpecialBar(); renderCount(); renderGrid(keepLimit); renderRailStatus(); saveUi();
   if (state.menuItem) renderMenu();
+  navSoon();
 }
 
 function renderGrid(keepScroll) {
@@ -864,7 +870,7 @@ function renderListbar() {
     var count = l ? listKeys(l).length : 0;
     if (l && isRadio(l)) tools += '<button class="btn btn-accent" type="button" data-tool="radio-more"' + (state.radioBusy ? ' disabled' : '') + '>' + (state.radioBusy ? 'Buscando…' : 'Sumar 10 más') + '</button>';
     else if (l && count) tools += '<button class="btn" type="button" data-tool="reco">Parecidas a esta lista</button><button class="btn" type="button" data-tool="radio-from">Armar festival</button>';
-    if (cur === 'seen' && seenKeys().length) tools += '<button class="btn btn-accent" type="button" data-tool="foryou">Recomendaciones para vos</button>';
+    if (cur === 'seen' && seenKeys().length) tools += '<button class="btn btn-accent" type="button" data-tool="foryou">' + (duoComp() ? esc(forYouNames().title) : 'Recomendaciones para vos') + '</button>';
     if (editable) tools += '<button class="btn btn-ghost" type="button" data-tool="rename">Renombrar</button><button class="btn btn-ghost" type="button" data-tool="delete">' + (state.confirmDelete === l.id ? 'Confirmar borrado' : 'Borrar lista') + '</button>';
   }
   var radioHint = '';
@@ -890,6 +896,7 @@ function renderRail() {
   $('#yFrom').value = state.f.yearFrom || ''; $('#yTo').value = state.f.yearTo || '';
   $('#maxRt').value = String(state.f.maxRuntime || 0);
   $('#hideSeen').checked = !!state.f.hideSeen;
+  $('#noIndia').checked = !!state.f.noIndia;
   $('#onlyMine').checked = !!state.f.onlyMine;
   renderPeopleChips();
 }
@@ -959,8 +966,8 @@ function fatal(e) {
 }
 
 /* ---------- detail ---------- */
-function openDialog(d) { if (typeof d.showModal === 'function') { if (!d.open) d.showModal(); } else { d.setAttribute('open', ''); d.classList.add('fallback'); } }
-function closeDialog(d) { if (typeof d.close === 'function') { if (d.open) d.close(); } else d.removeAttribute('open'); }
+function openDialog(d) { if (typeof d.showModal === 'function') { if (!d.open) d.showModal(); } else { d.setAttribute('open', ''); d.classList.add('fallback'); } navSoon(); }
+function closeDialog(d) { if (typeof d.close === 'function') { if (d.open) d.close(); } else d.removeAttribute('open'); navSoon(); }
 
 async function openDetail(it, pick) {
   closeMenu();
@@ -983,6 +990,13 @@ async function openDetail(it, pick) {
   } catch (e) {
     if (state.detail && state.detail.k === it.k) { state.detail.error = e.message; renderDetail(); }
   }
+}
+function duoRowHTML(it) {
+  var c = duoComp(); if (!c) return '';
+  var seen = compSeen(c, it.k), st = compStar(c, it.k), b = '';
+  for (var i = 1; i <= 5; i++) b += '<button class="star' + (i <= st ? ' on' : '') + '" type="button" data-cstar="' + i + '" aria-label="' + i + (i === 1 ? ' estrella' : ' estrellas') + ' de ' + esc(c.name) + '" aria-pressed="' + (i === st) + '">' + ICON.star + '</button>';
+  return '<div class="duo-row"><span class="duo-who">' + DUO_ICON + esc(c.name) + '</span><button class="btn" type="button" data-cseen aria-pressed="' + seen + '">' + (seen ? 'La vio' : 'No la vio') + '</button>' +
+    '<span class="stars" role="group" aria-label="Puntaje de ' + esc(c.name) + '">' + b + '</span>' + (duoNote(it.k) ? '<span class="hint">' + esc(duoNote(it.k)) + '</span>' : '') + '</div>';
 }
 function renderDetail() {
   var D = state.detail; if (!D) return;
@@ -1067,7 +1081,7 @@ function renderDetail() {
           '<button class="btn" type="button" data-dact="watch" aria-pressed="' + watch + '">' + (watch ? 'En Mi lista' : 'Sumar a Mi lista') + '</button>' +
           '<button class="btn" type="button" data-dact="seen" aria-pressed="' + seen + '">' + (seen ? 'Vista' : 'Marcar como vista') + '</button>' +
           '<span class="stars" role="group" aria-label="Tu puntaje" title="Tu puntaje: afina tus recomendaciones">' + starBtns + '</span>' +
-        '</div>' +
+        '</div>' + duoRowHTML(it) +
         '<div class="actions-2">' +
           '<button class="btn" type="button" data-dact="reco">Más como esta</button>' +
           '<button class="btn" type="button" data-dact="radio">Armar festival</button>' +
@@ -1087,7 +1101,7 @@ function renderDetail() {
 }
 
 function pickOne() {
-  var src = state.filtered.filter(function (it) { return !isSeen(it.k); });
+  var src = state.filtered.filter(function (it) { return !seenNow(it.k); });
   if (!src.length) { toast('No hay nada para elegir con estos filtros.'); return; }
   var top = src.slice(0, Math.min(40, src.length)), it, guard = 0;
   do { it = top[Math.floor(Math.random() * top.length)]; guard++; } while (top.length > 1 && it.k === state.lastPick && guard < 10);
@@ -1104,6 +1118,7 @@ function openMenu(anchor, it) {
   var top = r.bottom + 6; if (top + h > window.innerHeight - 12) top = Math.max(12, r.top - h - 6);
   m.style.left = left + 'px'; m.style.top = top + 'px';
   var first = $('.mi', m); if (first) first.focus();
+  navSoon();
 }
 function renderMenu() {
   var it = state.menuItem; if (!it) return;
@@ -1111,7 +1126,7 @@ function renderMenu() {
     return '<button class="mi" type="button" role="menuitemcheckbox" aria-checked="' + isIn(l, it.k) + '" data-mlist="' + esc(l.id) + '"><span class="box">' + ICON.check + '</span><span class="lname">' + esc(l.name) + '</span><span class="n">' + nf.format(listKeys(l).length) + '</span></button>';
   }).join('');
 }
-function closeMenu() { var m = $('#listMenu'); if (m && !m.hidden) { m.hidden = true; state.menuItem = null; } }
+function closeMenu() { var m = $('#listMenu'); if (m && !m.hidden) { m.hidden = true; state.menuItem = null; navSoon(); } }
 
 /* ---------- búsqueda en todo TMDB ---------- */
 async function globalSearch(q) {
@@ -1132,7 +1147,7 @@ async function globalSearch(q) {
   }
 }
 function clearQuery() { state.q = ''; var qi = document.getElementById('q'); if (qi) qi.value = ''; }
-function backFromSpecial() { state.special = null; refresh(); window.scrollTo(0, 0); }
+function backFromSpecial() { if (navBack()) return; state.special = null; refresh(); window.scrollTo(0, 0); }
 
 /* ---------- todo el cine (TMDB en vivo, con los filtros) ---------- */
 function allParams(type) {
@@ -1336,7 +1351,7 @@ async function curSectionSeeds(sec, n) {
   var seeds = [];
   for (var i = 0; i < films.length && seeds.length < n; i++) {
     var it = await curResolve(films[i]);
-    if (it && !isSeen(it.k)) seeds.push(it);
+    if (it && !seenNow(it.k)) seeds.push(it);
   }
   return seeds;
 }
@@ -1385,6 +1400,7 @@ function renderFestDraft() {
   $('#festGo').disabled = !seeds.length;
   $('#festGo').textContent = seeds.length ? 'Armar festival con ' + seeds.length + (seeds.length === 1 ? ' título' : ' títulos') : 'Armar festival';
   $('#festTaste').disabled = !tasteSeeds(1).length;
+  $('#festTaste').textContent = duoComp() ? 'Con lo que más nos gustó a ' + duoComp().name + ' y a mí' : 'Con lo que más me gustó';
   $('#festTaste').title = $('#festTaste').disabled ? 'Marcá como vistas o puntuá algunas pelis primero' : 'Usa lo que puntuaste con 4 y 5 estrellas';
 }
 var festSearch = debounce(async function (q) {
@@ -1417,10 +1433,11 @@ function festFromDraft() {
 }
 function festFromTaste() {
   var seeds = tasteSeeds(6); if (!seeds.length) return;
-  var ex = visibleLists().filter(function (l) { return l.name === 'Festival a tu gusto' && isRadio(l); })[0];
+  var name = forYouNames().fest;
+  var ex = visibleLists().filter(function (l) { return l.name === name && isRadio(l); })[0];
   closeDialog($('#dlgFest'));
   if (ex) { openList(ex); toast('Ya tenías este festival. Con «Sumar 10 más» le agregás títulos.'); return; }
-  createRadio(seeds, 'Festival a tu gusto');
+  createRadio(seeds, name);
 }
 function openList(l) {
   closeDialog($('#dlgFest')); closeDialog($('#dlgDetail'));
@@ -1469,7 +1486,7 @@ async function seedInfo(seed) {
   var soft = function (e) { if (e && e.fatal) throw e; };
   var jobs = [tmdb('/' + type + '/' + seed.id + '/recommendations', { language: lang, page: 2 }).then(function (r) { (r.results || []).forEach(function (x) { add(x, type, 'rec'); }); }, soft)];
   info.dirs.forEach(function (p) {
-    jobs.push(loadPersonCredits(p.id).then(function (data) { data.items.forEach(function (it) { if ((data.roles[it.k] || {}).dir) add({ id: it.id, title: it.t, original_title: it.ot, release_date: it.y ? it.y + '-01-01' : '', genre_ids: it.g, vote_average: it.v, vote_count: it.vc, popularity: it.pop, poster_path: it.p }, it.type, 'dir:' + p.name); }); }, soft));
+    jobs.push(loadPersonCredits(p.id).then(function (data) { data.items.forEach(function (it) { if ((data.roles[it.k] || {}).dir) add({ id: it.id, title: it.t, original_title: it.ot, original_language: it.l, release_date: it.y ? it.y + '-01-01' : '', genre_ids: it.g, vote_average: it.v, vote_count: it.vc, popularity: it.pop, poster_path: it.p }, it.type, 'dir:' + p.name); }); }, soft));
   });
   info.kws.forEach(function (kw) {
     jobs.push(tmdb('/discover/' + type, { with_keywords: kw.id, sort_by: 'vote_count.desc', 'vote_count.gte': type === 'movie' ? 60 : 20, include_adult: 'false', language: lang }).then(function (r) { (r.results || []).forEach(function (x) { add(x, type, 'kw:' + kw.name); }); }, soft));
@@ -1536,11 +1553,13 @@ async function recommend(seeds, progress) {
     });
   });
   var out = [];
+  var duo = duoComp();
   agg.forEach(function (a) {
-    var mine = starOf(a.it.k); if (mine && mine <= 2) return;
+    if (lowNow(a.it.k) || (state.f.noIndia && isIndian(a.it))) return;
     var parts = [], dirs = Object.keys(a.dirs), kws = Object.keys(a.kws), cur = Object.keys(a.cur);
-    var ta = tasteAdj(a.it, prof, dirs, seedKeys);
-    if (ta.because) parts.push('Porque te gustó ' + ta.because);
+    var ta = tasteAdj(a.it, prof, dirs, seedKeys), dn = duoNote(a.it.k);
+    if (dn) { parts.push(dn); if (/encantó/.test(dn)) ta.d += 0.05; }
+    if (ta.because) parts.push(becauseText(ta.because));
     if (a.rel) parts.push('Pariente directo');
     if (dirs.length) parts.push('De ' + dirs.slice(0, 2).join(' y '));
     if (cur.length) parts.push('Comparte: ' + cur.slice(0, 3).join(', '));
@@ -1549,6 +1568,15 @@ async function recommend(seeds, progress) {
     if (!parts.length && a.genre) parts.push('Mismo género');
     out.push({ it: fromCatalog(a.it), match: a.sum / infos.length + 0.08 * Math.max(0, a.hits - 1) + ta.d, why: parts.slice(0, 3).join(' · ') });
   });
+  /* de a dos: las semillas que vio uno solo y le gustaron también valen, para verlas juntos */
+  if (duo && out.length) {
+    var topM = Math.max.apply(null, out.map(function (x) { return x.match; }));
+    seeds.forEach(function (sd) {
+      var k = sd.k, a2 = iSaw(k), b2 = compSeen(duo, k);
+      if (a2 === b2 || lowNow(k) || Math.max(starOf(k), compStar(duo, k)) < 4) return;
+      out.push({ it: fromCatalog(sd), match: topM * 0.95, why: duoNote(k) });
+    });
+  }
   out.sort(function (x, y) { return y.match - x.match; });
   return out.slice(0, 120);
 }
@@ -1582,27 +1610,113 @@ async function openReco(seeds, opts) {
    alto o bajo (por la curaduría) y los directores de lo que te gustó. Pesa más cuantas
    más pelis puntuaste. */
 var TASTE_W = [0, -1, -0.6, 0, 0.6, 1];
-function tasteProfile() {
-  var u = state.user, keys = new Set(Object.keys(u.stars).filter(function (k) { return starOf(k) > 0; }).concat(seenKeys()));
-  var p = { genres: {}, dirs: {}, liked: [], disliked: [], rated: 0, seenOnly: 0, conf: 0 };
+/* ---------- de a dos ----------
+   Gusto de otra persona guardado en este dispositivo (llega por un link que genera su
+   WatchListo, o se arma a mano marcando en cada ficha lo que vio). Con el modo "de a dos"
+   activo: se oculta solo lo que vieron los dos, lo que vio uno solo puede volver a salir
+   (salvo que lo haya puntuado mal), y el perfil de gusto combina a los dos: lo que les
+   gustó a ambos pesa más, y lo que a uno no le gustó resta aunque el otro no lo haya visto. */
+var COMP = loadComps();
+function loadComps() {
+  var raw = LS.get('companions', []);
+  return (Array.isArray(raw) ? raw : []).map(cleanComp).filter(Boolean).slice(0, 8);
+}
+function cleanComp(c) {
+  if (!c || typeof c !== 'object' || typeof c.id !== 'string' || !/^c:[a-z0-9-]{1,40}$/.test(c.id)) return null;
+  var out = { id: c.id, name: String(c.name || 'Alguien').slice(0, 30), at: +c.at || 0, src: c.src === 'link' ? 'link' : 'manual', seen: tsMap(c.seen), stars: {}, items: {} };
+  if (c.stars && typeof c.stars === 'object') Object.keys(c.stars).forEach(function (k) { var n = Math.round(+c.stars[k]); if (validKey(k) && n >= 1 && n <= 5) out.stars[k] = n; });
+  if (c.items && typeof c.items === 'object') Object.keys(c.items).forEach(function (k) { if (validKey(k)) { var it = cleanSnap(c.items[k], k); if (it) out.items[k] = it; } });
+  return out;
+}
+function saveComps() { LS.set('companions', COMP); }
+var duoState = LS.get('duo', null);
+state.duo = duoState && typeof duoState.id === 'string' && +duoState.until > Date.now() && COMP.some(function (c) { return c.id === duoState.id; }) ? duoState.id : null;
+function duoComp() { return state.duo ? COMP.filter(function (c) { return c.id === state.duo; })[0] || null : null; }
+function setDuo(id) {
+  state.duo = id && COMP.some(function (c) { return c.id === id; }) ? id : null;
+  if (state.duo) LS.set('duo', { id: state.duo, until: Date.now() + 10 * 3600 * 1000 }); else LS.del('duo');
+  renderDuoBtn(); refresh();
+}
+function compSeen(c, k) { return !!(c && (c.seen[k] || c.stars[k])); }
+function compStar(c, k) { return c ? c.stars[k] || 0 : 0; }
+function iSaw(k) { return isSeen(k) || starOf(k) > 0; }
+/* con el modo de a dos, "vista" es vista por los dos */
+function seenNow(k) { var c = duoComp(); return c ? isSeen(k) && compSeen(c, k) : isSeen(k); }
+function lowNow(k) { var a = starOf(k), c = duoComp(), b = compStar(c, k); return (a > 0 && a <= 2) || (b > 0 && b <= 2); }
+function itemFor(k) {
+  var type = typeOfKey(k), idx = catIndex(type), hit = idx && idx.get(k);
+  if (hit) return hit;
+  if (state.user.items[k]) return resolveItem(k);
+  for (var i = 0; i < COMP.length; i++) if (COMP[i].items[k]) return Object.assign({}, COMP[i].items[k], { s: [], off: !!state.catalogs[type] });
+  return resolveItem(k);
+}
+function duoNote(k) {
+  var c = duoComp(); if (!c) return '';
+  var a = iSaw(k), b = compSeen(c, k); if (a === b) return '';
+  if (a) return starOf(k) >= 4 ? 'Ya la viste y te encantó; ' + c.name + ' no la vio' : 'Ya la viste; ' + c.name + ' no';
+  return compStar(c, k) >= 4 ? c.name + ' la vio y le encantó; vos no' : c.name + ' ya la vio; vos no';
+}
+function mySignals() {
+  var u = state.user, out = new Map();
+  Object.keys(u.stars).filter(function (k) { return starOf(k) > 0; }).concat(seenKeys()).forEach(function (k) {
+    if (out.has(k) || !u.items[k]) return;
+    var n = starOf(k);
+    out.set(k, { k: k, n: n, w: n ? TASTE_W[n] : 0.15, it: u.items[k], at: n ? u.stars[k].at : (u.seen[k] || 0) });
+  });
+  return out;
+}
+function compSignals(c) {
+  var out = new Map();
+  Object.keys(c.stars).concat(Object.keys(c.seen)).forEach(function (k) {
+    if (out.has(k)) return;
+    var n = c.stars[k] || 0, it = c.items[k] || state.user.items[k]; if (!it) return;
+    out.set(k, { k: k, n: n, w: n ? TASTE_W[n] : 0.15, it: it, at: c.seen[k] || c.at || 0 });
+  });
+  return out;
+}
+/* señales con las que se arma el perfil: las tuyas o, de a dos, la combinación */
+function tasteSignals() {
+  var mine = mySignals(), c = duoComp();
+  if (!c) return Array.from(mine.values()).map(function (s) { s.who = 'me'; return s; });
+  var theirs = compSignals(c), keys = new Set(Array.from(mine.keys()).concat(Array.from(theirs.keys()))), out = [];
   keys.forEach(function (k) {
-    var it = u.items[k]; if (!it) return;
-    var n = starOf(k), w = n ? TASTE_W[n] : 0.15;
-    if (n) p.rated++; else p.seenOnly++;
-    if (!w) return;
-    (it.g || []).forEach(function (g) { p.genres[g] = (p.genres[g] || 0) + w; });
-    var info = state.seedCache[k];
+    var a = mine.get(k), b = theirs.get(k), w, who;
+    if (a && b) {
+      who = 'both';
+      if (a.w >= 0.6 && b.w >= 0.6) w = 1.2;
+      else if (a.w < 0 || b.w < 0) w = Math.min(a.w, b.w);
+      else w = (a.w + b.w) / 2;
+    } else { var x = a || b; who = a ? 'me' : 'them'; w = x.w < 0 ? x.w : x.w * 0.6; }
+    var s = a || b;
+    out.push({ k: k, n: Math.max(a ? a.n : 0, b ? b.n : 0), w: w, it: s.it, at: Math.max(a ? a.at : 0, b ? b.at : 0), who: who });
+  });
+  return out;
+}
+function tasteProfile() {
+  var sig = tasteSignals(), duo = !!duoComp();
+  var p = { genres: {}, dirs: {}, liked: [], disliked: [], rated: 0, seenOnly: 0, conf: 0, duo: duo };
+  sig.forEach(function (s) {
+    if (s.n) p.rated++; else p.seenOnly++;
+    var w = s.w; if (!w) return;
+    (s.it.g || []).forEach(function (g) { p.genres[g] = (p.genres[g] || 0) + w; });
+    var info = state.seedCache[s.k];
     if (info) info.dirs.forEach(function (d) { p.dirs[d.name] = (p.dirs[d.name] || 0) + w; });
-    var at = n ? u.stars[k].at : 0, cf = curFind(it);
-    if (w >= 0.6) p.liked.push({ it: it, w: w, cf: cf, at: at });
-    else if (w < 0) p.disliked.push({ it: it, w: w, cf: cf, at: at });
+    var e = { it: s.it, w: w, cf: curFind(s.it), at: s.at, who: s.who };
+    if (w >= (duo ? 0.36 : 0.6)) p.liked.push(e); else if (w < 0) p.disliked.push(e);
   });
   var mx = 0; Object.keys(p.genres).forEach(function (g) { mx = Math.max(mx, Math.abs(p.genres[g])); });
   if (mx) Object.keys(p.genres).forEach(function (g) { p.genres[g] /= mx; });
-  var recent = function (a, b) { return b.at - a.at; };
-  p.liked = p.liked.sort(recent).slice(0, 60); p.disliked = p.disliked.sort(recent).slice(0, 60);
-  p.conf = Math.min(1, (p.rated + 0.3 * p.seenOnly) / 8);
+  var rank = function (a, b) { return b.w - a.w || b.at - a.at; };
+  p.liked = p.liked.sort(rank).slice(0, 80); p.disliked = p.disliked.sort(rank).slice(0, 80);
+  p.conf = Math.min(1, (p.rated + 0.3 * p.seenOnly) / (duo ? 12 : 8));
   return p;
+}
+function becauseText(b) {
+  if (!b) return '';
+  var c = duoComp();
+  if (b.who === 'both') return 'Porque a los dos les gustó ' + b.t;
+  if (b.who === 'them' && c) return 'Porque a ' + c.name + ' le gustó ' + b.t;
+  return 'Porque te gustó ' + b.t;
 }
 function tasteAdj(it, p, dirs, seedKeys) {
   if (!p || !p.conf) return { d: 0, because: null };
@@ -1613,31 +1727,202 @@ function tasteAdj(it, p, dirs, seedKeys) {
   if (cf) {
     var near = function (l) { return Math.min(1, curSim(l.cf, cf) + (curRel(l.cf, cf) ? 0.3 : 0)); };
     var best = 0, worst = 0;
-    p.liked.forEach(function (l) { if (!l.cf || l.cf.id === cf.id) return; var s = near(l) * l.w; if (s > best) { best = s; because = s >= 0.4 && !(seedKeys && seedKeys.has(l.it.k)) ? l.it.t : null; } });
+    p.liked.forEach(function (l) {
+      if (!l.cf || l.cf.id === cf.id) return;
+      var s = near(l) * Math.min(1, l.w);
+      if (s > best) { best = s; because = s >= 0.35 && !(seedKeys && seedKeys.has(l.it.k)) ? { t: l.it.t, who: l.who } : null; }
+    });
     p.disliked.forEach(function (l) { if (!l.cf || l.cf.id === cf.id) return; var s = near(l) * -l.w; if (s > worst) worst = s; });
     d += 0.16 * best - 0.16 * worst;
   }
   (dirs || []).forEach(function (n) { var w = p.dirs[n]; if (w) d += 0.05 * Math.max(-1, Math.min(1, w)); });
   return { d: d * p.conf, because: because };
 }
-/* semillas para "Para vos": lo mejor puntuado, sin repetir demasiado el mismo género */
+/* semillas para "Para vos" / "Para los dos": lo mejor puntuado, sin repetir demasiado el mismo género */
 function tasteSeeds(n) {
-  var u = state.user;
-  var keys = Object.keys(u.stars).filter(function (k) { return starOf(k) >= 4 && u.items[k]; })
-    .sort(function (a, b) { return starOf(b) - starOf(a) || u.stars[b].at - u.stars[a].at; });
-  if (keys.length < 3) seenKeys().forEach(function (k) { if (!starOf(k) && u.items[k] && keys.indexOf(k) < 0) keys.push(k); });
+  var duo = !!duoComp();
+  var sig = tasteSignals().filter(function (s) { return s.w >= (duo ? 0.36 : 0.6); }).sort(function (a, b) { return b.w - a.w || b.at - a.at; });
+  if (sig.length < 3) tasteSignals().forEach(function (s) { if (!s.n && s.w > 0 && sig.indexOf(s) < 0) sig.push(s); });
   var out = [], perGenre = {}, rest = [];
-  keys.forEach(function (k) {
-    var g = (u.items[k].g || [])[0] || 0;
-    if (out.length < n && (perGenre[g] || 0) < 2) { out.push(k); perGenre[g] = (perGenre[g] || 0) + 1; } else rest.push(k);
+  sig.forEach(function (s) {
+    var g = (s.it.g || [])[0] || 0;
+    if (out.length < n && (perGenre[g] || 0) < 2) { out.push(s.k); perGenre[g] = (perGenre[g] || 0) + 1; } else rest.push(s.k);
   });
   rest.forEach(function (k) { if (out.length < n) out.push(k); });
-  return out.map(resolveItem);
+  return out.map(itemFor);
 }
+function forYouNames() { var c = duoComp(); return c ? { title: 'Para vos y ' + c.name, fest: ('Festival con ' + c.name).slice(0, 40) } : { title: 'Para vos', fest: 'Festival a tu gusto' }; }
 function openForYou() {
   var seeds = tasteSeeds(6);
-  if (!seeds.length) { toast('Marcá como vistas o puntuá algunas y te recomiendo según eso.'); return; }
-  openReco(seeds, { title: 'Para vos', festName: 'Festival a tu gusto' });
+  if (!seeds.length) { toast(duoComp() ? 'Todavía no tengo vistas ni puntajes de ninguno de los dos.' : 'Marcá como vistas o puntuá algunas y te recomiendo según eso.'); return; }
+  var nm = forYouNames();
+  openReco(seeds, { title: nm.title, festName: nm.fest });
+}
+
+/* --- compartir e importar el gusto (link con vistas y estrellas, comprimido; sin claves ni listas) --- */
+function b64url(bytes) { var s = ''; for (var i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000)); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
+function unb64url(str) { var s = atob(str.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((str.length + 3) % 4)), out = new Uint8Array(s.length); for (var i = 0; i < s.length; i++) out[i] = s.charCodeAt(i); return out; }
+function compId(name) { return 'c:' + (fold(name).replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'alguien'); }
+async function packTaste(name) {
+  var rows = [];
+  mySignals().forEach(function (s) { var it = s.it; rows.push([s.k, isSeen(s.k) ? 1 : 0, s.n, it.y || 0, (it.g || []).slice(0, 4), String(it.t || '').slice(0, 80), it.l || '', s.at]); });
+  rows.sort(function (a, b) { return b[7] - a[7]; });
+  var json = JSON.stringify({ v: 1, n: String(name || '').trim().slice(0, 30) || 'Alguien', at: Date.now(), e: rows.slice(0, 1500).map(function (r) { return r.slice(0, 7); }) });
+  var bytes = new TextEncoder().encode(json);
+  if (typeof CompressionStream === 'function') {
+    try { return 'z' + b64url(new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new CompressionStream('deflate-raw'))).arrayBuffer())); } catch (e) {}
+  }
+  return 'u' + b64url(bytes);
+}
+async function unpackTaste(text) {
+  var code = String(text || '').trim(), m = code.match(/taste=([A-Za-z0-9_-]+)/); if (m) code = m[1];
+  var bad = function (msg) { return new Error(msg || 'El link está cortado o incompleto.'); };
+  if (!/^[zu][A-Za-z0-9_-]{8,}$/.test(code) || code.length > 400000) throw bad('Eso no parece un link de gusto de WatchListo.');
+  var bytes;
+  try { bytes = unb64url(code.slice(1)); } catch (e) { throw bad(); }
+  if (code.charAt(0) === 'z') {
+    if (typeof DecompressionStream !== 'function') throw bad('Este navegador no puede leer ese link. Probá desde Chrome.');
+    try {
+      var reader = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw')).getReader(), parts = [], total = 0;
+      for (;;) { var r = await reader.read(); if (r.done) break; total += r.value.length; if (total > 4e6) { reader.cancel(); throw bad(); } parts.push(r.value); }
+      bytes = new Uint8Array(total); var off = 0; parts.forEach(function (p) { bytes.set(p, off); off += p.length; });
+    } catch (e) { throw bad(); }
+  }
+  var obj; try { obj = JSON.parse(new TextDecoder().decode(bytes)); } catch (e) { throw bad(); }
+  if (!obj || obj.v !== 1 || !Array.isArray(obj.e)) throw bad('Eso no parece un link de gusto de WatchListo.');
+  var name = String(obj.n || 'Alguien').replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, 30) || 'Alguien';
+  var at = Math.min(+obj.at || Date.now(), Date.now());
+  var c = { id: compId(name), name: name, at: at, src: 'link', seen: {}, stars: {}, items: {} };
+  obj.e.slice(0, 3000).forEach(function (r) {
+    if (!Array.isArray(r) || !validKey(r[0])) return;
+    var k = r[0], n = Math.round(+r[2]) || 0;
+    if (r[1] || n) c.seen[k] = at;
+    if (n >= 1 && n <= 5) c.stars[k] = n;
+    var snap = cleanSnap({ t: String(r[5] || '').slice(0, 120), y: +r[3] || null, g: Array.isArray(r[4]) ? r[4].map(Number).filter(function (x) { return isFinite(x); }).slice(0, 6) : [], l: typeof r[6] === 'string' ? r[6] : '' }, k);
+    if (snap) c.items[k] = snap;
+  });
+  if (!Object.keys(c.seen).length) throw bad('Ese gusto viene vacío: no tiene vistas ni puntajes.');
+  return c;
+}
+function upsertComp(c) {
+  var i = -1; COMP.forEach(function (x, j) { if (x.id === c.id) i = j; });
+  if (i >= 0) COMP[i] = c; else { if (COMP.length >= 8) COMP.shift(); COMP.push(c); }
+  saveComps();
+}
+function readTasteHash() {
+  var h = location.hash || ''; if (h.indexOf('#taste=') !== 0) return;
+  try { history.replaceState(history.state, '', location.pathname + location.search); } catch (e) {}
+  unpackTaste(h.slice(7)).then(function (c) { state.duoImport = c; openDuo(); }, function (e) { toast(e.message); });
+}
+
+/* --- diálogo "De a dos" --- */
+var DUO_ICON = '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M3 19c.8-3.2 3.1-5 6-5s5.2 1.8 6 5"/><circle cx="17" cy="9" r="2.6"/><path d="M16.5 14.2c2.4.2 4 1.8 4.5 4.8"/></svg>';
+function renderDuoBtn() {
+  var b = $('#duoBtn'); if (!b) return; var c = duoComp();
+  b.classList.toggle('on', !!c);
+  b.innerHTML = DUO_ICON + (c ? '<span>' + esc(c.name) + '</span>' : '');
+  b.setAttribute('aria-label', c ? 'Viendo con ' + c.name + '. Abrir De a dos' : 'Ver de a dos');
+  b.title = c ? 'Viendo con ' + c.name : 'Ver de a dos';
+}
+function openDuo() { closeMenu(); closeRail(); renderDuo(); openDialog($('#dlgDuo')); $('#dlgDuo').scrollTop = 0; }
+function duoTitles(keys, n) { return keys.slice(0, n || 6).map(function (k) { return esc(itemFor(k).t); }).join(' · '); }
+function duoSummary(c) {
+  var A = new Set(mySignals().keys()), B = new Set(Object.keys(c.seen).concat(Object.keys(c.stars)));
+  var common = Array.from(A).filter(function (k) { return B.has(k); });
+  var both = common.filter(function (k) { return starOf(k) >= 4 && compStar(c, k) >= 4; }).sort(function (x, y) { return starOf(y) + compStar(c, y) - starOf(x) - compStar(c, x); });
+  var clash = common.filter(function (k) { var a = starOf(k), b = compStar(c, k); return a && b && Math.abs(a - b) >= 3; });
+  var forThem = Array.from(A).filter(function (k) { return !B.has(k) && starOf(k) >= 4; }).sort(function (x, y) { return starOf(y) - starOf(x); });
+  var forMe = Array.from(B).filter(function (k) { return !A.has(k) && compStar(c, k) >= 4; }).sort(function (x, y) { return compStar(c, y) - compStar(c, x); });
+  var nm = esc(c.name.length > 12 ? c.name.slice(0, 11) + '…' : c.name);
+  var venn = '<svg class="venn" viewBox="0 0 320 150" role="img" aria-label="Vistas: vos ' + A.size + ', ' + esc(c.name) + ' ' + B.size + ', en común ' + common.length + '">' +
+    '<circle class="va" cx="124" cy="75" r="68"/><circle class="vb" cx="196" cy="75" r="68"/>' +
+    '<text class="vl" x="86" y="64">Vos</text><text class="vn" x="86" y="92">' + (A.size - common.length) + '</text>' +
+    '<text class="vn" x="160" y="84">' + common.length + '</text><text class="vs" x="160" y="102">en común</text>' +
+    '<text class="vl" x="234" y="64">' + nm + '</text><text class="vn" x="234" y="92">' + (B.size - common.length) + '</text></svg>';
+  var line = function (label, keys, empty) { return '<p class="duo-line"><b>' + label + '</b> ' + (keys.length ? duoTitles(keys) + (keys.length > 6 ? ' y ' + (keys.length - 6) + ' más' : '') : '<span class="muted">' + empty + '</span>') + '</p>'; };
+  return '<section class="duo-sec"><div class="duo-venn">' + venn + '<div class="duo-lines">' +
+    line('A los dos les encantaron:', both, 'Todavía ninguna en común con 4 o 5 estrellas.') +
+    (clash.length ? line('No coinciden en:', clash, '') : '') +
+    line('Para mostrarle a ' + esc(c.name) + ':', forThem, 'Puntuá con 4 o 5 las que te encantaron.') +
+    line('Para que ' + esc(c.name) + ' te muestre:', forMe, 'No hay de las que le encantaron que no hayas visto.') +
+    '</div></div><p class="hint">Mientras estén de a dos: se esconde solo lo que vieron los dos, lo que vio uno solo puede volver a aparecer (salvo que lo haya puntuado mal) y las recomendaciones mezclan los dos gustos, con más peso en lo que les gustó a ambos.</p>' +
+    '<div class="fest-row"><button class="btn btn-accent" type="button" data-duo="foryou">Recomendaciones para los dos</button><button class="btn" type="button" data-duo="fest">Armar festival juntos</button><button class="btn" type="button" data-duo="guide">Que elija el acomodador</button></div></section>';
+}
+function renderDuo() {
+  var c = duoComp(), imp = state.duoImport, h = '';
+  if (imp) {
+    var ex = COMP.some(function (x) { return x.id === imp.id; });
+    h += '<div class="duo-imp"><p><b>' + esc(imp.name) + '</b> te mandó su gusto: ' + nf.format(Object.keys(imp.seen).length) + ' vistas, ' + nf.format(Object.keys(imp.stars).length) + ' con estrellas.' + (ex ? ' Reemplaza al que ya tenías guardado con ese nombre.' : '') + '</p>' +
+      '<div class="fest-row"><button class="btn btn-accent" type="button" data-duo="save">Guardar y ver con ' + esc(imp.name) + '</button><button class="btn btn-ghost" type="button" data-duo="discard">Ahora no</button></div></div>';
+  }
+  h += '<section class="duo-sec"><h3 class="fest-h">¿Con quién estás?</h3><div class="g-chips"><button class="g-chip" type="button" data-duo="with" data-v="" aria-pressed="' + !c + '">Solo</button>' +
+    COMP.map(function (x) { return '<button class="g-chip" type="button" data-duo="with" data-v="' + esc(x.id) + '" aria-pressed="' + (!!c && c.id === x.id) + '">Con ' + esc(x.name) + '</button>'; }).join('') + '</div>' +
+    (COMP.length ? '' : '<p class="hint">Todavía no cargaste a nadie. Más abajo podés sumar a alguien.</p>') + '</section>';
+  if (c) h += duoSummary(c);
+  if (COMP.length) h += '<section class="duo-sec"><h3 class="fest-h">Gente guardada</h3><ul class="duo-people">' + COMP.map(function (x) {
+    var n = Object.keys(x.seen).length, d = x.at ? new Date(x.at).toLocaleDateString('es-AR') : '';
+    return '<li><span><b>' + esc(x.name) + '</b><small>' + nf.format(n) + ' vistas · ' + (x.src === 'link' ? 'por link del ' + d : 'marcado a mano') + '</small></span>' +
+      '<button class="btn btn-ghost" type="button" data-duo="del" data-v="' + esc(x.id) + '">' + (state.duoDel === x.id ? 'Confirmar' : 'Borrar') + '</button></li>';
+  }).join('') + '</ul><p class="hint">Se guardan solo en este dispositivo. Si te mandan un link nuevo, se actualiza.</p></section>';
+  h += '<section class="duo-sec"><h3 class="fest-h">Sumar a alguien</h3>' +
+    '<p class="hint">Si usa WatchListo: que abra <b>De a dos</b>, toque <b>Compartir mi gusto</b> y te mande el link. Lo abrís en este dispositivo o lo pegás acá:</p>' +
+    '<div class="fest-form"><label class="sr" for="duoPaste">Link de gusto</label><textarea class="inp" id="duoPaste" rows="2" placeholder="Pegá el link que te mandaron"></textarea><div class="fest-row"><button class="btn" type="button" data-duo="paste">Leer link</button></div></div>' +
+    '<p class="hint">Si no usa WatchListo: creale un perfil y, con el modo de a dos activo, marcá en cada ficha lo que vio y cuánto le gustó.</p>' +
+    '<div class="duo-new"><label class="sr" for="duoNewName">Nombre</label><input class="inp" id="duoNewName" maxlength="30" placeholder="Nombre" autocomplete="off"><button class="btn" type="button" data-duo="new">Crear perfil</button></div></section>';
+  h += '<section class="duo-sec"><h3 class="fest-h">Compartir mi gusto</h3><p class="hint">Arma un link con lo que viste y tus estrellas, sin claves ni listas, para que otra persona lo cargue en su WatchListo.</p>' +
+    '<div class="duo-new"><label class="sr" for="duoMyName">Tu nombre</label><input class="inp" id="duoMyName" maxlength="30" placeholder="Tu nombre" autocomplete="off" value="' + esc(state.settings.myName || '') + '"><button class="btn btn-accent" type="button" data-duo="share">Compartir mi gusto</button></div>' +
+    '<label class="sr" for="duoOut">Link para compartir</label><textarea class="inp" id="duoOut" rows="3" readonly hidden></textarea></section>';
+  $('#duoBody').innerHTML = h;
+}
+async function duoAct(act, v, btn) {
+  if (act === 'with') { setDuo(v || null); renderDuo(); return; }
+  if (act === 'save') { var c = state.duoImport; state.duoImport = null; if (c) { upsertComp(c); setDuo(c.id); toast('Listo, ahora están de a dos con ' + c.name + '.'); } renderDuo(); return; }
+  if (act === 'discard') { state.duoImport = null; renderDuo(); return; }
+  if (act === 'del') {
+    if (state.duoDel !== v) { state.duoDel = v; renderDuo(); setTimeout(function () { if (state.duoDel === v) { state.duoDel = null; if ($('#dlgDuo').open) renderDuo(); } }, 4000); return; }
+    state.duoDel = null; COMP = COMP.filter(function (x) { return x.id !== v; }); saveComps(); if (state.duo === v) setDuo(null); renderDuo(); return;
+  }
+  if (act === 'paste') {
+    try { state.duoImport = await unpackTaste($('#duoPaste').value); renderDuo(); $('#dlgDuo').scrollTop = 0; }
+    catch (e) { toast(e.message); }
+    return;
+  }
+  if (act === 'new') {
+    var name = $('#duoNewName').value.replace(/[<>]/g, '').trim().slice(0, 30); if (!name) { $('#duoNewName').focus(); return; }
+    var id = compId(name);
+    if (!COMP.some(function (x) { return x.id === id; })) upsertComp({ id: id, name: name, at: Date.now(), src: 'manual', seen: {}, stars: {}, items: {} });
+    setDuo(id); renderDuo(); toast('Perfil de ' + name + ' creado. Marcá en cada ficha lo que vio.'); return;
+  }
+  if (act === 'share') {
+    var my = $('#duoMyName').value.replace(/[<>]/g, '').trim().slice(0, 30);
+    if (!my) { toast('Poné tu nombre así la otra persona sabe de quién es.'); $('#duoMyName').focus(); return; }
+    if (!mySignals().size) { toast('Todavía no marcaste nada como visto.'); return; }
+    state.settings.myName = my; saveSettings();
+    btn.disabled = true;
+    try {
+      var url = location.origin + location.pathname + '#taste=' + await packTaste(my);
+      var out = $('#duoOut'); out.value = url; out.hidden = false;
+      if (navigator.share) { try { await navigator.share({ title: 'Mi gusto en WatchListo', text: 'Mi gusto en WatchListo, para elegir qué ver juntos:', url: url }); } catch (e) { if (e && e.name !== 'AbortError') out.select(); } }
+      else { try { await navigator.clipboard.writeText(url); toast('Link copiado. Mandáselo por donde quieras.'); } catch (e) { out.select(); toast('Copiá el link de abajo.'); } }
+    } finally { btn.disabled = false; }
+    return;
+  }
+  if (act === 'foryou') { closeDialog($('#dlgDuo')); openForYou(); return; }
+  if (act === 'fest') { closeDialog($('#dlgDuo')); festFromTaste(); return; }
+  if (act === 'guide') { closeDialog($('#dlgDuo')); state.guide = null; openGuide(); return; }
+}
+/* en la ficha, con el modo de a dos: marcar lo que vio la otra persona */
+function compToggleSeen(it) {
+  var c = duoComp(); if (!c) return;
+  if (compSeen(c, it.k)) { delete c.seen[it.k]; delete c.stars[it.k]; }
+  else { c.seen[it.k] = Date.now(); c.items[it.k] = snapshot(it); }
+  saveComps();
+}
+function compSetStar(it, n) {
+  var c = duoComp(); if (!c) return;
+  if (!n || c.stars[it.k] === n) delete c.stars[it.k]; else c.stars[it.k] = n;
+  if (n) c.seen[it.k] = c.seen[it.k] || Date.now();
+  c.items[it.k] = snapshot(it); saveComps();
 }
 
 /* ---------- radios ---------- */
@@ -1649,7 +1934,7 @@ async function radioFill(l, n) {
   var t = now(), added = 0;
   for (var i = 0; i < recs.length && added < n; i++) {
     var it = recs[i].it, k = it.k;
-    if (isIn(l, k) || l.nos[k] || l.seeds[k] || isSeen(k) || (l.rms[k] || 0) > 0) continue;
+    if (isIn(l, k) || l.nos[k] || (l.seeds[k] && !duoComp()) || seenNow(k) || lowNow(k) || (l.rms[k] || 0) > 0) continue;
     l.adds[k] = t - added; state.user.items[k] = snapshot(it); added++;
   }
   touchUser();
@@ -1795,10 +2080,13 @@ function renderGuide() {
   var g = state.guide, body = $('#guideBody'); if (!g || !body) return;
   var say = '', main = '', foot = '';
   if (g.step === 'start') {
-    var conf = tasteProfile().conf;
-    say = 'Buenas. Pasá, que quedan butacas. ¿Hoy es noche de película o de serie?';
-    main = '<div class="g-opts g-two">' + guideOpt('type', 'movie', 'Película', 'una sola sentada') + guideOpt('type', 'tv', 'Serie', 'para engancharse') + '</div>' +
-      '<div class="g-alts">' + (conf >= 0.4 ? '<button class="g-alt" type="button" data-g="blind">A ciegas, según lo que me gustó</button>' : '') +
+    var conf = tasteProfile().conf, dc = duoComp();
+    say = dc ? 'Buenas, pasen, que quedan butacas. ¿Hoy es noche de película o de serie?' : 'Buenas. Pasá, que quedan butacas. ¿Hoy es noche de película o de serie?';
+    main = '<div class="g-row g-with"><span class="rlabel">¿Con quién?</span><div class="g-chips"><button class="g-chip" type="button" data-g="with" data-v="" aria-pressed="' + !dc + '">Solo</button>' +
+      COMP.map(function (c) { return '<button class="g-chip" type="button" data-g="with" data-v="' + esc(c.id) + '" aria-pressed="' + (!!dc && dc.id === c.id) + '">Con ' + esc(c.name) + '</button>'; }).join('') +
+      '<button class="g-chip" type="button" data-g="duo">' + (COMP.length ? '+ Otra persona' : '+ Con alguien') + '</button></div></div>' +
+      '<div class="g-opts g-two">' + guideOpt('type', 'movie', 'Película', 'una sola sentada') + guideOpt('type', 'tv', 'Serie', 'para engancharse') + '</div>' +
+      '<div class="g-alts">' + (conf >= 0.4 ? '<button class="g-alt" type="button" data-g="blind">' + (dc ? 'A ciegas, según lo que nos gustó' : 'A ciegas, según lo que me gustó') + '</button>' : '') +
       '<button class="g-alt" type="button" data-g="random">Una al azar de lo que estoy viendo</button></div>' +
       (conf < 0.4 ? '<p class="hint g-note">Cuantas más marques como vistas y puntúes, mejor te voy a conocer y más afinadas te van a salir.</p>' : '');
   } else if (g.step === 'mood') {
@@ -1850,6 +2138,7 @@ function renderGuide() {
     var miss = g.pair.filter(function (f) { return !curMap[f.id]; });
     if (miss.length) Promise.all(miss.map(curResolve)).then(function () { if (state.guide === g && g.step === 'duel' && g.pair && miss.every(function (f) { return g.pair.indexOf(f) >= 0; })) renderGuide(); }, function () {});
   }
+  navSoon();
 }
 var guideRefreshSoon = debounce(function () { var g = state.guide; if (g && g.step === 'results' && $('#dlgGuide').open) renderGuide(); }, 600);
 async function ensureDetails(items) {
@@ -1866,10 +2155,11 @@ function guideWhy(g, r) {
     var f = CUR.byId.get(id); if (!f || f.id === r.cf.id) return;
     var s = curSim(f, r.cf) + (curRel(f, r.cf) ? 0.3 : 0); if (s > ns) { ns = s; near = f; }
   });
+  var dn = duoNote(r.it.k); if (dn) parts.push(dn);
   if (near) parts.push('Va por el lado de ' + curShownTitle(near));
   if (r.why) parts.push(r.why);
   else if (r.cf) { var L = CUR.labels; parts.push([L.sub[r.cf.sub[0]], L.ton[r.cf.ton[0]]].filter(Boolean).join(', ')); }
-  return parts.slice(0, 2).join(' · ');
+  return parts.filter(function (x, i) { return parts.indexOf(x) === i; }).slice(0, 2).join(' · ');
 }
 async function guideCompute(g, progress) {
   var films = guidePool(g), era = GUIDE_ERAS[g.era] || {};
@@ -1916,8 +2206,7 @@ async function guideCompute(g, progress) {
   var out = [];
   cands.forEach(function (c) {
     var it = c.it;
-    if (it.type !== g.type || isSeen(it.k) || !inEra(it.y) || usedKeys.has(it.k)) return;
-    var mine = starOf(it.k); if (mine && mine <= 2) return;
+    if (it.type !== g.type || seenNow(it.k) || !inEra(it.y) || usedKeys.has(it.k) || lowNow(it.k) || (state.f.noIndia && isIndian(it))) return;
     var cf = curFind(it), fit, gi = it.g || [];
     if (cf) { fit = fitN(cf); if (secs && secs.indexOf(cf.sec) < 0) fit *= 0.4; }
     else {
@@ -1973,6 +2262,8 @@ function guideAct(act, v, b) {
   if (act === 'back') { guideBack(); return; }
   if (act === 'restart') { state.guide = guideNew(); renderGuide(); return; }
   if (act === 'random') { closeDialog($('#dlgGuide')); state.guide = null; pickOne(); return; }
+  if (act === 'with') { setDuo(v || null); renderGuide(); return; }
+  if (act === 'duo') { closeDialog($('#dlgGuide')); openDuo(); return; }
   if (act === 'blind') { guidePush(); g.blind = true; g.step = 'details'; renderGuide(); return; }
   if (act === 'type') { guidePush(); g.type = v === 'tv' ? 'tv' : 'movie'; g.step = 'mood'; renderGuide(); return; }
   if (act === 'mood') {
@@ -1991,6 +2282,89 @@ function guideAct(act, v, b) {
   if (act === 'watch') { var it2 = g.res && g.res.byK.get(v); if (it2) { var on = toggleList('watchlist', it2); toast(on ? 'Sumada a Mi lista.' : 'Sacada de Mi lista.'); renderGuide(); } return; }
   if (act === 'all') { guideShowAll(g); return; }
   if (act === 'fest') { if (g.res && g.res.seeds.length) { closeDialog($('#dlgGuide')); createRadio(g.res.seeds, 'Festival de esta noche'); } return; }
+}
+
+/* ---------- botón Atrás (Android) ----------
+   Cada pantalla que se abre (una ficha, festivales, el acomodador, de a dos, ajustes, los
+   filtros en el celu, o vistas como "Más como esta", una persona o una búsqueda) suma una
+   entrada al historial del navegador. Atrás vuelve exactamente a la anterior, aunque eso
+   signifique reabrir la ficha de la que venías. En la pantalla principal, el primer Atrás
+   avisa y recién el segundo seguido sale de la app. */
+var NAV = { entries: [], idx: 0, armed: false, skip: 0, applying: false, queued: false };
+var NAV_DIALOGS = ['dlgDetail', 'dlgGuide', 'dlgFest', 'dlgDuo', 'dlgSettings'];
+function navSnap() {
+  var top = null;
+  for (var i = 0; i < NAV_DIALOGS.length; i++) { var d = document.getElementById(NAV_DIALOGS[i]); if (d && d.open) { top = NAV_DIALOGS[i]; break; } }
+  return { special: state.special || null, dialog: top, detail: top === 'dlgDetail' && state.detail ? state.detail.it : null, rail: document.body.classList.contains('rail-open'), menu: !$('#listMenu').hidden, gstep: top === 'dlgGuide' && state.guide ? state.guide.hist.length : 0, y: 0 };
+}
+function navSame(a, b) { return !!a && !!b && a.special === b.special && a.dialog === b.dialog && a.rail === b.rail && !!a.menu === !!b.menu && (a.gstep || 0) === (b.gstep || 0) && (a.detail ? !!b.detail && a.detail.k === b.detail.k : !b.detail); }
+function navSoon() {
+  if (NAV.queued || NAV.applying || !NAV.armed) return;
+  NAV.queued = true;
+  Promise.resolve().then(function () { NAV.queued = false; navSync(); });
+}
+function navSync() {
+  if (NAV.applying || !NAV.armed) return;
+  var s = navSnap(), cur = NAV.entries[NAV.idx];
+  if (navSame(s, cur)) return;
+  var prev = NAV.idx > 1 ? NAV.entries[NAV.idx - 1] : null;
+  if (prev && navSame(s, prev)) { NAV.idx--; NAV.skip++; history.back(); return; }
+  NAV.entries = NAV.entries.slice(0, NAV.idx + 1); NAV.entries.push(s); NAV.idx++;
+  try { history.pushState({ wl: NAV.idx }, ''); } catch (e) {}
+}
+/* la primera entrada se crea con un toque del usuario (Chrome saltea las que se crean sin interacción) */
+function navArm() {
+  if (NAV.armed) return;
+  NAV.armed = true;
+  NAV.entries = [{ special: null, dialog: null, detail: null, rail: false, menu: false, y: 0 }, navSnap()];
+  NAV.entries[1].y = window.scrollY;
+  NAV.idx = 1;
+  try { history.replaceState({ wl: 0 }, ''); history.pushState({ wl: 1 }, ''); } catch (e) {}
+}
+function navApply(s) {
+  NAV.applying = true;
+  try {
+    closeMenu(); s.menu = false;
+    if (s.rail) openRail(); else closeRail();
+    NAV_DIALOGS.forEach(function (id) { var d = document.getElementById(id); if (d && d.open && id !== s.dialog) closeDialog(d); });
+    if (state.special !== s.special) {
+      state.special = s.special;
+      refresh(true);
+      var y = s.y || 0; requestAnimationFrame(function () { window.scrollTo(0, y); });
+    }
+    var dlg = s.dialog && document.getElementById(s.dialog);
+    if (s.dialog === 'dlgDetail' && s.detail) { if (!dlg.open || !state.detail || state.detail.k !== s.detail.k) openDetail(s.detail); }
+    else if (dlg && !dlg.open) {
+      if (s.dialog === 'dlgGuide') { if (!state.guide) state.guide = guideNew(); renderGuide(); }
+      else if (s.dialog === 'dlgFest') { renderFest(); renderFestDraft(); }
+      else if (s.dialog === 'dlgDuo') renderDuo();
+      else if (s.dialog === 'dlgSettings') fillSettingsForm();
+      openDialog(dlg);
+    }
+    if (s.dialog === 'dlgGuide' && state.guide) {
+      while (state.guide.hist.length > (s.gstep || 0)) guideBack();
+      s.gstep = state.guide.hist.length;
+    }
+  } finally { NAV.applying = false; }
+}
+function navBack() { if (NAV.armed && NAV.idx > 1) { history.back(); return true; } return false; }
+function navInit() {
+  ['pointerdown', 'keydown'].forEach(function (ev) { document.addEventListener(ev, navArm, true); });
+  window.addEventListener('scroll', function () { var e = NAV.entries[NAV.idx]; if (e && !e.dialog) e.y = window.scrollY; }, { passive: true });
+  NAV_DIALOGS.forEach(function (id) { var d = document.getElementById(id); if (d) d.addEventListener('close', navSoon); });
+  window.addEventListener('popstate', function (e) {
+    var st = e.state; if (!st || typeof st.wl !== 'number') return;
+    if (NAV.skip) { NAV.skip--; return; }
+    if (st.wl === 0 && NAV.armed) {
+      var wasBase = navSame(NAV.entries[1], NAV.entries[0]);
+      NAV.armed = false; NAV.idx = 0;
+      navApply(NAV.entries[0]);
+      if (wasBase) toast('Tocá Atrás otra vez para salir.');
+      return;
+    }
+    var target = NAV.entries[st.wl]; if (!target) return;
+    NAV.idx = st.wl; navApply(target);
+  });
 }
 
 /* ---------- sync (GitHub Gist) ---------- */
@@ -2253,12 +2627,12 @@ function loadCatalogAndRefresh(t) {
   if (!state.settings.tmdbKey || state.fatal) return;
   ensureCatalog(t).then(function () { if (state.ui.type === t) { renderGenreChips(); refresh(); } }, function (e) { if (e.fatal) fatal(e); else showBanner('<p>' + esc(e.message) + '</p><button class="btn" type="button" data-retry>Reintentar</button>'); });
 }
-function openRail() { document.body.classList.add('rail-open'); $('#veil').hidden = false; }
-function closeRail() { document.body.classList.remove('rail-open'); $('#veil').hidden = true; }
+function openRail() { document.body.classList.add('rail-open'); $('#veil').hidden = false; navSoon(); }
+function closeRail() { document.body.classList.remove('rail-open'); $('#veil').hidden = true; navSoon(); }
 var refreshSoon = debounce(function () { refresh(); }, 160);
 function clearFilters() {
-  var keepSeen = state.f.hideSeen;
-  state.f = defaultFilters(); state.f.hideSeen = keepSeen;
+  var keepSeen = state.f.hideSeen, keepIndia = state.f.noIndia;
+  state.f = defaultFilters(); state.f.hideSeen = keepSeen; state.f.noIndia = keepIndia;
   renderRail(); refresh();
 }
 function radioAction(kind, it) {
@@ -2366,6 +2740,7 @@ function bind() {
     refresh();
   });
   $('#hideSeen').addEventListener('change', function (e) { state.f.hideSeen = e.target.checked; refresh(); });
+  $('#noIndia').addEventListener('change', function (e) { state.f.noIndia = e.target.checked; refresh(); });
   $('#clearFilters').addEventListener('click', clearFilters);
 
   /* delegated clicks */
@@ -2461,6 +2836,9 @@ function bind() {
       if (act === 'watch') toggleList('watchlist', it); else toggleSeen(it);
       renderDetail(); updateCard(it.k); if (state.ui.view === 'lists') refreshSoon(); return;
     }
+    if (e.target.closest('[data-cseen]')) { compToggleSeen(it); renderDetail(); if (state.ui.view === 'lists' || state.special) refreshSoon(); return; }
+    var cst = e.target.closest('[data-cstar]');
+    if (cst) { compSetStar(it, +cst.dataset.cstar); renderDetail(); return; }
     var st = e.target.closest('[data-star]');
     if (st) { var n = +st.dataset.star; if (setStar(it, starOf(it.k) === n ? 0 : n)) toast('Puntuada y marcada como vista.'); renderDetail(); updateCard(it.k); return; }
     var dl = e.target.closest('[data-dlist]');
@@ -2491,6 +2869,16 @@ function bind() {
   });
   $('#festGo').addEventListener('click', festFromDraft);
   $('#festTaste').addEventListener('click', festFromTaste);
+
+  /* de a dos */
+  $('#duoBtn').addEventListener('click', openDuo);
+  var du = $('#dlgDuo');
+  du.addEventListener('click', function (e) {
+    if (e.target === du || e.target.closest('[data-close]')) { closeDialog(du); return; }
+    var b = e.target.closest('[data-duo]'); if (!b || b.disabled) return;
+    duoAct(b.dataset.duo, b.dataset.v || '', b).catch(function (err) { if (err && err.fatal) fatal(err); else if (err) toast(err.message); });
+  });
+  $('#duoOpenFromSettings').addEventListener('click', function () { closeDialog($('#dlgSettings')); openDuo(); });
 
   /* el acomodador */
   var dg = $('#dlgGuide');
@@ -2556,16 +2944,19 @@ function registerSW() {
 }
 
 function boot() {
+  navInit();
   applyTheme();
   readPairHash();
+  renderDuoBtn();
   loadCuraduria();
   bind();
   renderRail();
   registerSW();
+  readTasteHash();
   if (!state.settings.tmdbKey) { showOnboarding(); return; }
   start();
 }
 
-if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') window.__cartelera = { state: state, refresh: refresh, scoreFor: scoreFor, recommend: recommend, curFind: curFind, cur: function () { return CUR; }, openFest: openFest, openGuide: openGuide, guide: function () { return state.guide; }, tasteProfile: tasteProfile, tasteSeeds: tasteSeeds, inviteUrl: inviteUrl, openReco: openReco, openPerson: openPerson, allSig: allSig, mergeUsers: mergeUsers, normUser: normUser, contentKey: contentKey, listKeys: listKeys, pairUrl: pairUrl, syncNow: syncNow };
+if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') window.__cartelera = { state: state, refresh: refresh, scoreFor: scoreFor, recommend: recommend, curFind: curFind, cur: function () { return CUR; }, openFest: openFest, openGuide: openGuide, openDuo: openDuo, packTaste: packTaste, unpackTaste: unpackTaste, comps: function () { return COMP; }, seenNow: seenNow, guide: function () { return state.guide; }, tasteProfile: tasteProfile, tasteSeeds: tasteSeeds, inviteUrl: inviteUrl, openReco: openReco, openPerson: openPerson, allSig: allSig, mergeUsers: mergeUsers, normUser: normUser, contentKey: contentKey, listKeys: listKeys, pairUrl: pairUrl, syncNow: syncNow };
 boot();
 })();
