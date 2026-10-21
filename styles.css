@@ -117,7 +117,7 @@ svg.i{width:16px;height:16px;flex:none}
 .inline-form{flex-wrap:wrap}
 .inline-form .inp{width:180px;max-width:100%;border-radius:999px;padding:7px 12px}
 body.onboarding .layout{grid-template-columns:minmax(0,1fr)}
-body.onboarding #viewSeg,body.onboarding #typeSeg,body.onboarding .search,body.onboarding #openRail,body.onboarding .sortwrap,body.onboarding #pick,body.onboarding #openFest,body.onboarding #duoBtn,body.onboarding .tabbar{display:none!important}
+body.onboarding #viewSeg,body.onboarding #typeSeg,body.onboarding .search,body.onboarding #openRail,body.onboarding #seenToggle,body.onboarding .sortwrap,body.onboarding #pick,body.onboarding #openFest,body.onboarding #duoBtn,body.onboarding .tabbar{display:none!important}
 .list-tools{display:flex;gap:6px;flex-wrap:wrap;margin-left:auto}
 .resbar{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px 16px}
 .count{font:800 26px/1.05 var(--f-display);letter-spacing:.02em;margin:0;text-wrap:balance;text-transform:uppercase}
@@ -341,7 +341,7 @@ a.sb.c-stremio:hover{background:var(--c);color:var(--bg)}
   .top-in{gap:8px}
   .brand{flex:1 1 auto}
   .search{order:5;flex-basis:100%}
-  #openRail{order:6}
+  #openRail,#seenToggle{order:6}
   .sortwrap{order:7;flex:1 1 90px;min-width:0}
   .sortwrap .sel{width:100%}
   .count{font-size:22px}
@@ -491,7 +491,7 @@ a.sb.c-stremio:hover{background:var(--c);color:var(--bg)}
 /* Perfil */
 .profile{display:none}
 .v-profile .profile{display:block}
-.v-profile .rail,.v-profile #listbar,.v-profile #specialBar,.v-profile #resbar,.v-profile #banner,.v-profile #grid,.v-profile #more,.v-profile #empty,.v-profile #openRail,.v-profile .sortwrap,.v-profile .search{display:none!important}
+.v-profile .rail,.v-profile #listbar,.v-profile #specialBar,.v-profile #resbar,.v-profile #banner,.v-profile #grid,.v-profile #more,.v-profile #empty,.v-profile #openRail,.v-profile #seenToggle,.v-profile .sortwrap,.v-profile .search{display:none!important}
 .v-profile .layout{grid-template-columns:minmax(0,1fr);max-width:1100px}
 .pf-head{display:flex;flex-wrap:wrap;align-items:center;gap:14px 18px}
 .pf-avatar{width:64px;height:64px;border-radius:50%;display:grid;place-items:center;background:var(--accent);color:var(--accent-ink);font:800 32px/1 var(--f-display);flex:none}
@@ -548,7 +548,7 @@ a.sb.c-stremio:hover{background:var(--c);color:var(--bg)}
   #viewSeg,#openFest,#pick,#openSettings{display:none}
   .brand{flex:1 1 auto}
   .search{order:5;flex-basis:100%}
-  #typeSeg,#openRail{order:6}
+  #typeSeg,#openRail,#seenToggle{order:6}
   .sortwrap{order:7;flex:1 1 90px;min-width:0}
   .sortwrap .sel{width:100%}
   .pf-name-inp{font-size:26px}
@@ -591,3 +591,14 @@ body.gated{overflow:hidden}
 .has-badge{position:relative}
 .has-badge::after{content:attr(data-badge);position:absolute;top:2px;right:calc(50% - 22px);min-width:17px;height:17px;padding:0 4px;border-radius:999px;background:var(--danger);color:#fff;font-size:10.5px;font-weight:800;line-height:17px;text-align:center;box-shadow:0 0 0 2px var(--bg)}
 #viewSeg .has-badge::after{top:-6px;right:-6px}
+
+/* ojito de vistas y marca de peli base */
+.seen-toggle{flex:none}
+.seen-toggle[aria-pressed="true"]{color:var(--accent);border-color:var(--accent)}
+.seen-toggle svg{width:19px;height:19px}
+.base-tag{position:absolute;left:8px;top:8px;font-size:10.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;padding:3px 7px;border-radius:999px;background:var(--accent);color:var(--accent-ink);box-shadow:0 2px 8px rgba(0,0,0,.35)}
+@media (max-width:430px){
+  #openRail{position:relative;width:38px;height:38px;padding:0;justify-content:center}
+  #openRail .lbl{display:none}
+  #openRail .badge{position:absolute;top:-5px;right:-5px}
+}

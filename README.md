@@ -16,7 +16,7 @@ Este producto usa la API de TMDB pero no está avalado ni certificado por TMDB. 
 
 ## Festivales y tu gusto
 
-Un festival es una lista con títulos base: se completa sola con parecidas y se guarda y sincroniza igual que cualquier lista. Se arma desde el botón **Festivales** (a mano, con lo que más te gustó o desde una sección prearmada), desde la ficha de un título o desde una lista.
+Un festival es una lista con títulos base: se completa sola con parecidas y se guarda y sincroniza igual que cualquier lista. Las pelis base son parte del festival: van primero, con la marca **Base**, y aparecen aunque ya las hayas visto (con su sello de vista). Para sacar una, abrila y tocá "Sacar del festival". Se arma desde el botón **Festivales** (a mano, con lo que más te gustó o desde una sección prearmada), desde la ficha de un título o desde una lista.
 
 Las vistas y las estrellas afinan las recomendaciones y los festivales: 5★ y 4★ empujan para arriba lo parecido, 2★ y 1★ lo empujan para abajo (y lo puntuado así nunca se recomienda), 3★ es neutro. El efecto crece a medida que puntuás más títulos. Puntuar un título lo marca como visto. En **Listas → Vistas** está "Recomendaciones para vos".
 
@@ -34,6 +34,7 @@ Para elegir con otra persona. Cada uno puede generar un link con su gusto (lo qu
 
 ## Otros detalles
 
+- **Ojito de vistas:** al lado del orden (y de Filtros en el celu) hay un botón con un ojo que oculta o muestra lo que ya viste, el mismo filtro que está en el costado.
 - **Cine de la India:** el filtro "Ocultar cine de la India" (activado por defecto) saca Bollywood y las demás industrias indias por idioma original, en catálogo, recomendaciones y festivales. Las búsquedas por título y tus listas no se filtran.
 - **Botón Atrás:** cada ficha, diálogo o vista especial suma una entrada al historial, así Atrás vuelve a la pantalla anterior (por ejemplo, de "Más como esta" a la ficha de la que venías). En la pantalla principal hay que tocarlo dos veces seguidas para salir.
 - **Rumbo de un festival:** cada festival muestra las etiquetas de sus pelis base. Sacar una oculta los títulos en los que lo sacado pesa más que lo que queda (por ejemplo, sin "Bélico" se van las de guerra y acción y quedan los dramas de guerra) y orienta lo que se suma después. Es reversible y se sincroniza con la lista.

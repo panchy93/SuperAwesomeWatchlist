@@ -38,6 +38,7 @@ var ICON = {
   bookmark: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><path d="M6 3.5h12v17l-6-4.2-6 4.2z"/></svg>',
   bookmarkOn: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><path d="M6 3.5h12v17l-6-4.2-6 4.2z"/></svg>',
   eye: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>',
+  eyeOff: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.6 5.1A10.4 10.4 0 0 1 12 5c6.4 0 10 7 10 7a17.6 17.6 0 0 1-2.8 3.7M6.5 6.6C3.7 8.4 2 12 2 12s3.6 7 10 7a9.8 9.8 0 0 0 5.4-1.6"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/><path d="M3 3l18 18"/></svg>',
   plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
   check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>',
   x: '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>',
@@ -229,9 +230,15 @@ function touchUser() { state.user.updatedAt = now(); LS.set('user', state.user);
 /* ---------- list accessors ---------- */
 function visibleLists() { return state.user.lists.concat(CLOUD && CLOUD.shared ? sharedLists() : []).filter(function (l) { return !l.deletedAt; }); }
 function getList(id) { return visibleLists().filter(function (l) { return l.id === id; })[0] || null; }
-function isIn(l, k) { return !!l && (l.adds[k] || 0) > (l.rms[k] || 0); }
+/* las pelis base de un festival son parte del festival: aparecen siempre, salvo que las saques */
+function seedIn(l, k) { var sd = l && l.seeds && l.seeds[k]; return !!sd && sd > ((l.rms || {})[k] || 0) && sd > ((l.nos || {})[k] || 0); }
+function seedKeys(l) { return Object.keys((l && l.seeds) || {}).filter(function (k) { return seedIn(l, k); }).sort(function (a, b) { return l.seeds[a] - l.seeds[b]; }); }
+function isIn(l, k) { return !!l && ((l.adds[k] || 0) > (l.rms[k] || 0) || seedIn(l, k)); }
 function inList(id, k) { return isIn(getList(id), k); }
-function listKeys(l) { return Object.keys(l.adds).filter(function (k) { return isIn(l, k); }).sort(function (a, b) { return l.adds[b] - l.adds[a]; }); }
+function listKeys(l) {
+  var base = seedKeys(l), inBase = new Set(base);
+  return base.concat(Object.keys(l.adds).filter(function (k) { return !inBase.has(k) && isIn(l, k); }).sort(function (a, b) { return l.adds[b] - l.adds[a]; }));
+}
 function isSeen(k) { return (state.user.seen[k] || 0) > (state.user.unseen[k] || 0); }
 function isHidden(k) { return (state.user.hidden[k] || 0) > (state.user.unhidden[k] || 0); }
 function hiddenKeys() { var u = state.user; return Object.keys(u.hidden).filter(isHidden).sort(function (a, b) { return u.hidden[b] - u.hidden[a]; }); }
@@ -862,7 +869,7 @@ function currentPool() {
   else if (state.ui.list === 'hidden') keys = hiddenKeys();
   else { var l = getList(state.ui.list) || getList('watchlist'); state.ui.list = l.id; keys = listKeys(l); }
   var items = keys.map(resolveItem).filter(Boolean), R = l ? rumboOf(l) : null;
-  if (R) { var vis = items.filter(function (it) { return !rumboOut(R, it); }); state.rumboHidden = items.length - vis.length; return vis; }
+  if (R) { var vis = items.filter(function (it) { return seedIn(l, it.k) || !rumboOut(R, it); }); state.rumboHidden = items.length - vis.length; return vis; }
   state.rumboHidden = 0;
   return items;
 }
@@ -876,6 +883,7 @@ function applyFilters(list) {
   var noIndia = f.noIndia && !(state.ui.view === 'lists' && !state.special) && !(state.special && state.special.kind === 'search');
   var curL = state.ui.view === 'lists' && !state.special ? getList(state.ui.list) : null;
   var hideHidden = !(state.special && state.special.kind === 'search') && !(state.ui.view === 'lists' && !state.special && (state.ui.list === 'hidden' || (curL && !isRadio(curL))));
+  var fest = curL && isRadio(curL) ? curL : null;
   var pk = null;
   if (f.people.length && !(state.special && state.special.kind === 'person')) {
     pk = [];
@@ -889,9 +897,10 @@ function applyFilters(list) {
     if (mine && !it.s.some(function (s) { return services.has(s); })) return false;
     if (open && f.onlyMine && !svcOf(it).length) return false;
     if (pk && !pk.some(function (set) { return set.has(it.k); })) return false;
-    if (hideSeen && seenNow(it.k)) return false;
+    var core = fest && seedIn(fest, it.k);
+    if (hideSeen && !core && seenNow(it.k)) return false;
     if (noIndia && isIndian(it)) return false;
-    if (hideHidden && isHidden(it.k)) return false;
+    if (hideHidden && !core && isHidden(it.k)) return false;
     if (q && fold(it.t).indexOf(q) < 0 && fold(it.ot).indexOf(q) < 0) return false;
     if (inc.length || exc.length) {
       var names = genreNames(it);
@@ -986,6 +995,7 @@ function whyHTML(it) {
   var meta = state.special && state.special.meta && state.special.meta.get(it.k);
   return meta && meta.why ? '<p class="why">' + esc(meta.why) + '</p>' : '';
 }
+function baseOf(k) { var l = radioContext(); return !!l && seedIn(l, k); }
 /* el marcador va lleno si el título está en cualquier lista; con fondo de color si es Mi lista */
 function bookmarkState(k) {
   var lists = visibleLists().filter(function (l) { return isIn(l, k); }), watch = lists.some(function (l) { return l.id === 'watchlist'; });
@@ -1002,7 +1012,7 @@ function cardHTML(it) {
       '<button class="q' + (bm.other ? ' saved' : '') + '" type="button" data-act="watch" aria-pressed="' + watch + '" aria-label="' + esc(bm.tip) + '" title="' + esc(bm.tip) + '">' + (bm.saved ? ICON.bookmarkOn : ICON.bookmark) + '</button>' +
       '<button class="q" type="button" data-act="seen" aria-pressed="' + seen + '" aria-label="Ya la vi" title="Ya la vi">' + ICON.eye + '</button>' +
       '<button class="q" type="button" data-act="lists" aria-haspopup="menu" aria-label="Agregar a otra lista" title="Agregar a otra lista">' + ICON.plus + '</button>' +
-    '</div>' + (seen ? '<span class="seen-tag">Vista</span>' : '') + '</div>' +
+    '</div>' + (seen ? '<span class="seen-tag">Vista</span>' : '') + (baseOf(it.k) ? '<span class="base-tag" title="Peli base del festival">Base</span>' : '') + '</div>' +
     '<div class="meta"><h3 class="t" title="' + t + '">' + t + '</h3><p class="sub">' + subHTML(it) + '</p><p class="scores">' + scoresHTML(it) + '</p><p class="svcs">' + svcsHTML(it) + '</p>' + whyHTML(it) + '</div>' +
     '</article>';
 }
@@ -1163,6 +1173,12 @@ function renderTop() {
   $('#onlyMineWrap').hidden = !ctxOpen();
   $('#onlyMine').checked = !!state.f.onlyMine;
   var n = activeFilterCount(), fc = $('#fcount'); fc.hidden = !n; fc.textContent = n;
+  /* ojito: ocultar o mostrar lo que ya viste, a un toque */
+  var st = $('#seenToggle'), hide = !!state.f.hideSeen;
+  st.hidden = !sp && (state.ui.view === 'profile' || (state.ui.view === 'lists' && (state.ui.list === 'seen' || state.ui.list === 'hidden')));
+  st.setAttribute('aria-pressed', hide); st.innerHTML = hide ? ICON.eyeOff : ICON.eye;
+  var tip = hide ? 'Ocultando lo que ya viste. Tocá para mostrarlo' : 'Mostrando lo que ya viste. Tocá para ocultarlo';
+  st.title = tip; st.setAttribute('aria-label', tip);
 }
 function rumboHTML(l) {
   var ch = rumboChips(l), tags = l.tags || {};
@@ -1214,7 +1230,7 @@ function renderListbar() {
   }
   var radioHint = '';
   if (l && isRadio(l) && !state.listEdit) {
-    var seeds = Object.keys(l.seeds).map(resolveItem).filter(Boolean).map(function (s) { return s.t; });
+    var seeds = seedKeys(l).map(resolveItem).filter(Boolean).map(function (s) { return s.t; });
     radioHint = '<p class="hint radio-hint"><span class="radio-tag">Festival</span> Una lista que se completa sola. Programado a partir de: ' + esc(seeds.join(', ')) + '. Abrí cualquier peli para usarla como base o sacarla del festival.</p>' + rumboHTML(l);
   }
   if (l && l.shared && !state.listEdit) {
@@ -1458,7 +1474,7 @@ function renderDetail() {
           '<button class="btn" type="button" data-dact="reco">Más como esta</button>' +
           '<button class="btn" type="button" data-dact="radio">Armar festival</button>' +
           '<button class="btn btn-ghost" type="button" data-dact="hide" aria-pressed="' + isHidden(it.k) + '">' + (isHidden(it.k) ? 'Volver a mostrar' : 'No me interesa') + '</button>' +
-          (rctx && listKeys(rctx).indexOf(it.k) >= 0 ? (rctx.seeds[it.k] ? '<span class="hint">Es una de las pelis base de este festival.</span>' : '<button class="btn" type="button" data-dact="seed">Usar como base</button>') + '<button class="btn btn-ghost" type="button" data-dact="nope">Sacar del festival</button>' : '') +
+          (rctx && listKeys(rctx).indexOf(it.k) >= 0 ? (seedIn(rctx, it.k) ? '<span class="hint">Es una de las pelis base de este festival.</span>' : '<button class="btn" type="button" data-dact="seed">Usar como base</button>') + '<button class="btn btn-ghost" type="button" data-dact="nope">Sacar del festival</button>' : '') +
         '</div>' +
         '<div class="dsec"><h3>Tus listas</h3><div class="chips">' + listChips + (D.newList ? '' : newList) + '</div>' + (D.newList ? newList : '') + '</div>' +
         curHtml +
@@ -2415,7 +2431,7 @@ function rumboOf(l) {
   var out = new Set(); Object.keys(l.tags).forEach(function (k) { if (l.tags[k].v < 0) out.add(k); });
   if (!out.size) return null;
   var keep = new Set();
-  Object.keys(l.seeds || {}).forEach(function (k) { var L = itemLabels(resolveItem(k)); L.main.concat(L.rest).forEach(function (x) { if (!out.has(x)) keep.add(x); }); });
+  seedKeys(l).forEach(function (k) { var L = itemLabels(resolveItem(k)); L.main.concat(L.rest).forEach(function (x) { if (!out.has(x)) keep.add(x); }); });
   return { out: out, keep: keep };
 }
 function rumboOut(R, it) {
@@ -2428,7 +2444,7 @@ function rumboOut(R, it) {
 }
 /* chips del rumbo: las etiquetas de las pelis base y, aparte, las más frecuentes entre los títulos del festival */
 function rumboChips(l) {
-  var seeds = Object.keys(l.seeds || {}), main = [], restN = {}, inBase = new Set();
+  var seeds = seedKeys(l), main = [], restN = {}, inBase = new Set();
   seeds.forEach(function (k) { var L = itemLabels(resolveItem(k)); L.main.forEach(function (x) { if (main.indexOf(x) < 0) main.push(x); }); L.rest.forEach(function (x) { restN[x] = (restN[x] || 0) + 1; }); });
   var rest = Object.keys(restN).sort(function (a, b) { return restN[b] - restN[a]; });
   var shared = rest.filter(function (x) { return restN[x] >= 2 || seeds.length === 1; }).slice(0, 8);
@@ -2615,7 +2631,7 @@ function profileAct(act, v) {
 function isRadio(l) { return !!l && Object.keys(l.seeds || {}).length > 0; }
 function radioContext() { if (state.special || state.ui.view !== 'lists') return null; var l = getList(state.ui.list); return isRadio(l) ? l : null; }
 async function radioFill(l, n) {
-  var seeds = Object.keys(l.seeds).sort(function (a, b) { return l.seeds[a] - l.seeds[b]; }).map(resolveItem).filter(Boolean).slice(-8);
+  var seeds = seedKeys(l).map(resolveItem).filter(Boolean).slice(-8);
   /* lista compartida de a dos: se programa con el gusto de los dos y su regla de vistas */
   var sc = sharedCompanion(l), prevDuo = state.duo, added = 0;
   if (sc) state.duo = sc.id;
@@ -3828,6 +3844,10 @@ function bind() {
     refresh();
   });
   $('#hideSeen').addEventListener('change', function (e) { state.f.hideSeen = e.target.checked; refresh(); });
+  $('#seenToggle').addEventListener('click', function () {
+    state.f.hideSeen = !state.f.hideSeen; $('#hideSeen').checked = state.f.hideSeen; refresh();
+    toast(state.f.hideSeen ? 'Ocultando lo que ya viste.' : 'Mostrando también lo que ya viste.');
+  });
   $('#noIndia').addEventListener('change', function (e) { state.f.noIndia = e.target.checked; refresh(); });
   $('#clearFilters').addEventListener('click', clearFilters);
 
@@ -4146,6 +4166,6 @@ function boot() {
   start();
 }
 
-if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') window.__cartelera = { state: state, refresh: refresh, scoreFor: scoreFor, recommend: recommend, curFind: curFind, cur: function () { return CUR; }, openFest: openFest, openGuide: openGuide, rumboOf: rumboOf, rumboOut: rumboOut, itemLabels: itemLabels, openDuo: openDuo, packTaste: packTaste, unpackTaste: unpackTaste, comps: function () { return COMP; }, cloud: function () { return CLOUD; }, cloudSyncModel: cloudSyncModel, allComps: allComps, seenNow: seenNow, guide: function () { return state.guide; }, tasteProfile: tasteProfile, tasteSeeds: tasteSeeds, openReco: openReco, openPerson: openPerson, allSig: allSig, mergeUsers: mergeUsers, normUser: normUser, contentKey: contentKey, listKeys: listKeys, services: function () { return { list: SERVICES, stremio: STREMIO_ON, sig: SVC_SIG }; }, st: function () { return ST; }, isHidden: isHidden, hiddenKeys: hiddenKeys, serviceCatalog: serviceCatalog, summarizeStreams: summarizeStreams };
+if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') window.__cartelera = { state: state, refresh: refresh, scoreFor: scoreFor, recommend: recommend, curFind: curFind, cur: function () { return CUR; }, openFest: openFest, openGuide: openGuide, rumboOf: rumboOf, rumboOut: rumboOut, itemLabels: itemLabels, openDuo: openDuo, packTaste: packTaste, unpackTaste: unpackTaste, comps: function () { return COMP; }, cloud: function () { return CLOUD; }, cloudSyncModel: cloudSyncModel, allComps: allComps, seenNow: seenNow, guide: function () { return state.guide; }, tasteProfile: tasteProfile, tasteSeeds: tasteSeeds, openReco: openReco, openPerson: openPerson, allSig: allSig, mergeUsers: mergeUsers, normUser: normUser, contentKey: contentKey, listKeys: listKeys, services: function () { return { list: SERVICES, stremio: STREMIO_ON, sig: SVC_SIG }; }, st: function () { return ST; }, isHidden: isHidden, hiddenKeys: hiddenKeys, serviceCatalog: serviceCatalog, summarizeStreams: summarizeStreams, createRadio: createRadio, seedKeys: seedKeys };
 boot();
 })();
