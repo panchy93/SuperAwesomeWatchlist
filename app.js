@@ -568,11 +568,15 @@ function pumpDetails() {
 function omdbLive() { return !!state.settings.omdbKey && !state.omdbStop; }
 function jwScoresLive() { return !!JW_PROXY && !JW.off && !JW.old; }
 function scoringLive() { return omdbLive() || jwScoresLive(); }
-/* ¿hay que pedir puntajes para este registro? src: el puntaje por el que se filtra, si hay */
+/* ¿hay que pedir puntajes para este registro? src: el puntaje por el que se filtra, si hay.
+   Con OMDb: lo que trajo JustWatch se completa si le falta ese puntaje o si lo puso Wikidata.
+   Sin OMDb: a lo de JustWatch que le falte Rotten Tomatoes o Metacritic se lo busca en Wikidata. */
 function wantsScore(o, src) {
   if (!o) return true;
-  if (o.src !== 'jw' || !omdbLive()) return false;
-  return src ? !nz(o[src]) : !!o.none;
+  if (o.src !== 'jw') return false;
+  if (omdbLive()) return src ? !nz(o[src]) || (o.wd || []).indexOf(src) >= 0 : !!o.none;
+  if (o.wdt || !wdLive()) return false;
+  return src ? (src === 'rt' || src === 'mc') && !nz(o[src]) : !nz(o.rt) || !nz(o.mc);
 }
 /* guarda un resultado sin pisar lo de OMDb con lo de JustWatch; si OMDb llega después, lo que a OMDb
    le falte se completa con lo que ya había traído JustWatch */
@@ -581,14 +585,14 @@ function putScores(imdb, r) {
   var old = state.omdb[imdb];
   if (r.src === 'jw') { if (old && old.src !== 'jw') return false; }
   else if (old && old.src === 'jw') {
-    ['imdb', 'votes', 'rt'].forEach(function (k) { if (!nz(r[k]) && nz(old[k])) r[k] = old[k]; });
+    ['imdb', 'votes', 'rt', 'mc'].forEach(function (k) { if (!nz(r[k]) && nz(old[k])) r[k] = old[k]; });
     if (nz(r.imdb) || nz(r.rt) || nz(r.mc)) delete r.none;
   }
   state.omdb[imdb] = r; saveCachesSoon(); return true;
 }
 function omdbToJwNote(e) {
-  return e && e.code === 'omdb-auth' ? e.message + ' Mientras tanto, IMDb y Rotten Tomatoes salen de JustWatch.'
-    : 'OMDb llegó al tope de consultas de hoy. Sigo con JustWatch: IMDb y Rotten Tomatoes, sin Metacritic.';
+  return e && e.code === 'omdb-auth' ? e.message + ' Mientras tanto, los puntajes salen de JustWatch y Wikidata.'
+    : 'OMDb llegó al tope de consultas de hoy. Sigo con JustWatch y Wikidata para IMDb, Rotten Tomatoes y, cuando está, Metacritic.';
 }
 function wantRatings(items, src) {
   if (!state.settings.omdbKey || !scoringLive()) return;
@@ -802,15 +806,84 @@ function jwScoreRec(j, imdb) {
   if (!nz(r.imdb) && !nz(r.rt)) r.none = true;
   return r;
 }
-/* sin OMDb: primero lo que ya consultó alguien de la app (puntajes de OMDb compartidos), si no, JustWatch */
+/* sin OMDb: primero lo que ya consultó alguien de la app (puntajes de OMDb compartidos); si no,
+   JustWatch (IMDb y Rotten Tomatoes), y lo que le falte a JustWatch, en Wikidata */
 async function fetchScoresNoOmdb(it, imdb) {
   var c = await omdbFromCloud(imdb);
-  return c || fetchJwScore(it, imdb);
+  if (c) return c;
+  var old = state.omdb[imdb], r = old && old.src === 'jw' ? Object.assign({}, old, { wd: (old.wd || []).slice() }) : null;
+  if (!r && jwScoresLive()) r = await fetchJwScore(it, imdb);
+  if (r && !r.wdt && (!nz(r.rt) || !nz(r.mc))) r = await addWikidata(r, imdb);
+  return r;
 }
 async function fetchJwScore(it, imdb) {
   if (JW.bad[it.k]) return null;
   try { return jwScoreRec(await jwFetch(it, null), imdb); }
   catch (e) { JW.bad[it.k] = 1; throw e; }
+}
+/* ---------- Wikidata (Rotten Tomatoes y Metacritic que no tiene JustWatch) ----------
+   Wikidata es la base de datos abierta de Wikipedia: no pide clave y sus datos son de uso libre.
+   Muchas películas tienen ahí el Tomatometer y el Metascore, a veces con algunos meses de atraso.
+   Se usa solo sin OMDb y solo para lo que JustWatch no trajo; queda marcado y OMDb lo reemplaza
+   cuando vuelve a tener consultas. Los pedidos se juntan de a 40 títulos y van de a dos por vez. */
+var WD_API = 'https://query.wikidata.org/sparql';
+var WD = { wait: new Map(), timer: 0, running: 0, fails: 0, off: false };
+function wdLive() { return !!WD_API && !WD.off; }
+/* {rt, mc} con lo que haya ({} si no hay nada), o null si la consulta falló */
+function wdScores(imdb) {
+  return new Promise(function (resolve) {
+    if (!wdLive() || !/^tt\d{5,10}$/.test(imdb)) return resolve(null);
+    var arr = WD.wait.get(imdb); if (!arr) WD.wait.set(imdb, arr = []); arr.push(resolve);
+    if (WD.wait.size >= 40) wdFlush(); else if (!WD.timer) WD.timer = setTimeout(wdFlush, 350);
+  });
+}
+function wdFlush() {
+  clearTimeout(WD.timer); WD.timer = 0;
+  if (!WD.wait.size) return;
+  if (WD.running >= 2) { WD.timer = setTimeout(wdFlush, 300); return; }
+  var batch = new Map();
+  WD.wait.forEach(function (v, k) { if (batch.size < 40) batch.set(k, v); });
+  batch.forEach(function (v, k) { WD.wait.delete(k); });
+  if (WD.wait.size) WD.timer = setTimeout(wdFlush, 50);
+  WD.running++;
+  wdQuery(Array.from(batch.keys()))
+    .then(function (res) { WD.fails = 0; batch.forEach(function (rs, k) { rs.forEach(function (r) { r(res[k] || {}); }); }); },
+      function () { if (++WD.fails >= 3) WD.off = true; batch.forEach(function (rs) { rs.forEach(function (r) { r(null); }); }); })
+    .then(function () { WD.running--; });
+}
+var WD_RT = 'http://www.wikidata.org/entity/Q105584', WD_MC = 'http://www.wikidata.org/entity/Q150248';
+async function wdQuery(ids) {
+  var q = 'SELECT ?imdb ?site ?score ?ml ?date WHERE { VALUES ?imdb { ' + ids.map(function (i) { return '"' + i + '"'; }).join(' ') + ' } ' +
+    'VALUES ?site { wd:Q105584 wd:Q150248 } ?film wdt:P345 ?imdb . ?film p:P444 ?st . ?st ps:P444 ?score ; pq:P447 ?site . ' +
+    'OPTIONAL { ?st pq:P459 ?m . ?m rdfs:label ?ml . FILTER(LANG(?ml) = "en") } OPTIONAL { ?st pq:P585 ?date } }';
+  var ctrl = new AbortController(), timer = setTimeout(function () { ctrl.abort(); }, 12000), j;
+  try {
+    /* Wikimedia pide que las apps se identifiquen (el navegador no deja cambiar el User-Agent) */
+    var res = await fetch(WD_API + '?format=json&query=' + encodeURIComponent(q), { credentials: 'omit', referrerPolicy: 'no-referrer', signal: ctrl.signal, headers: { 'Api-User-Agent': 'WatchListo/1.0 (https://panchy93.github.io/SuperAwesomeWatchlist/)' } });
+    if (!res.ok) throw AppError('wd', 'Wikidata respondió ' + res.status);
+    j = await res.json();
+  } finally { clearTimeout(timer); }
+  /* solo el Tomatometer («94%») y el Metascore («75/100»); el más reciente si hay varios */
+  var out = {}, when = {};
+  (((j || {}).results || {}).bindings || []).forEach(function (b) {
+    var id = b.imdb && b.imdb.value, site = b.site && b.site.value, sc = String((b.score && b.score.value) || '').trim();
+    var ml = String((b.ml && b.ml.value) || ''), d = String((b.date && b.date.value) || ''), m, v = null;
+    if (ids.indexOf(id) < 0 || /audience|popcorn|user|average/i.test(ml)) return;
+    var kind = site === WD_RT ? 'rt' : site === WD_MC ? 'mc' : null;
+    if (kind === 'rt' && (m = /^(\d{1,3})\s*%$/.exec(sc))) v = +m[1];
+    if (kind === 'mc' && (m = /^(\d{1,3})\s*\/\s*100$/.exec(sc))) v = +m[1];
+    if (v === null || v > 100 || (when[id + kind] != null && when[id + kind] >= d)) return;
+    when[id + kind] = d; (out[id] = out[id] || {})[kind] = v;
+  });
+  return out;
+}
+async function addWikidata(r, imdb) {
+  var w = await wdScores(imdb);
+  if (!w) return r;
+  r.wdt = 1;
+  ['rt', 'mc'].forEach(function (k) { if (!nz(r[k]) && nz(w[k])) { r[k] = w[k]; r.wd = (r.wd || []).concat(k); } });
+  if (r.wd && r.wd.length) delete r.none;
+  return r;
 }
 async function wantJw(it, full) {
   if (!JW_PROXY || JW.off || !full || JW.cache[it.k] || JW.loading[it.k]) return;
@@ -859,7 +932,7 @@ function scoresOf(it) {
     tmdb: it.vc > 0 ? it.v : null,
     imdb: o && nz(o.imdb) ? o.imdb : null, votes: o && o.votes ? o.votes : null,
     rt: o && nz(o.rt) ? o.rt : null, mc: o && nz(o.mc) ? o.mc : null,
-    omdbDone: !!o, noImdb: !!(d && !d.imdb), jw: !!(o && o.src === 'jw'), rec: o
+    omdbDone: !!o, noImdb: !!(d && !d.imdb), jw: !!(o && o.src === 'jw'), wd: o && o.src === 'jw' && o.wd ? o.wd : [], rec: o
   };
 }
 function scoreFor(it, src) {
@@ -1219,9 +1292,10 @@ function emptyHTML() {
 function laterText(n, full) {
   var src = state.f.ratingSrc, name = SRC[src].label, N = nf.format(n);
   var auth = state.omdbStop && !/tope/.test(state.omdbStop), when = auth ? 'cuando OMDb vuelva a aceptar la clave' : 'mañana';
-  if (jwScoresLive() && src !== 'mc') return (full ? 'JustWatch no tiene el puntaje de ' + name + ' de ' + N + ' títulos que cumplen el resto de los filtros; ' : 'JustWatch no tiene el puntaje de ' + name + ' de ' + N + ': ') + 'los completa OMDb ' + when;
+  var who = src === 'rt' && wdLive() ? 'Ni JustWatch ni Wikidata tienen' : 'JustWatch no tiene';
+  if (jwScoresLive() && src !== 'mc') return who + ' el puntaje de ' + name + ' de ' + N + (full ? ' títulos que cumplen el resto de los filtros; ' : ': ') + 'los completa OMDb ' + when;
   var why = auth ? 'OMDb no acepta la clave' : 'OMDb llegó al tope de consultas de hoy';
-  var mc = src === 'mc' && jwScoresLive() ? ' (JustWatch no tiene Metacritic)' : '';
+  var mc = src === 'mc' && jwScoresLive() && !wdLive() ? ' (JustWatch no tiene Metacritic)' : '';
   return why + (full ? ' y a ' + N + ' títulos que cumplen el resto de los filtros' : ': a ' + N) + ' les falta el puntaje de ' + name + mc + '. Se completan ' + when;
 }
 function ratingGapHTML() {
@@ -1406,7 +1480,7 @@ function renderRailStatus() {
   }
   if (!state.settings.omdbKey && !(cloudIn() && !CLOUD.admin)) out.push('<p>Sumá una clave gratis de OMDb para ver IMDb, Rotten Tomatoes y Metacritic. <button class="linkbtn" type="button" data-settings>Configurar</button></p>');
   else if (state.omdbStop) {
-    out.push('<p>' + esc(state.omdbStop) + (jwScoresLive() ? ' Mientras tanto, IMDb y Rotten Tomatoes salen de JustWatch (ahí no está Metacritic).' : '') + '</p>');
+    out.push('<p>' + esc(state.omdbStop) + (jwScoresLive() ? ' Mientras tanto, IMDb y Rotten Tomatoes salen de JustWatch, y lo que le falte (también Metacritic), de Wikidata cuando lo tiene.' : '') + '</p>');
     if (JW.old && (!cloudIn() || CLOUD.admin)) out.push('<p>El Worker de JustWatch está desactualizado y no trae puntajes. Pegá de nuevo el código de tools/justwatch-worker.js en Cloudflare y tocá Deploy.</p>');
   }
   else if (state.filtered.length) {
@@ -1472,9 +1546,10 @@ async function openDetail(it, pick) {
       try { if (putScores(imdb, await fetchOmdb(imdb))) shown(); }
       catch (e) { if (e.code === 'omdb-limit' || e.code === 'omdb-auth') { renderRailStatus(); toast(jwScoresLive() ? omdbToJwNote(e) : e.message); } }
     }
-    if (state.settings.omdbKey && imdb && !state.omdb[imdb] && jwScoresLive()) {
+    if (state.settings.omdbKey && imdb && jwScoresLive() && (!omdbLive() || !state.omdb[imdb])) {
       await jwP;
-      if (!state.omdb[imdb] && jwScoresLive()) { try { if (putScores(imdb, await fetchScoresNoOmdb(it, imdb))) shown(); } catch (e) {} }
+      var cur = state.omdb[imdb];
+      if (jwScoresLive() && (!cur || (!omdbLive() && wantsScore(cur, null)))) { try { if (putScores(imdb, await fetchScoresNoOmdb(it, imdb))) shown(); } catch (e) {} }
     }
   } catch (e) {
     if (state.detail && state.detail.k === it.k) { state.detail.error = e.message; renderDetail(); }
@@ -1608,7 +1683,7 @@ function renderDetail() {
       (D.pick ? '<button class="btn btn-sm" type="button" data-repick>Otra opción</button>' : '') +
     '</div>';
   var partA =
-    '<div class="det-scores">' + scores + (s.jw ? '<span class="ds-src" title="OMDb no tenía consultas disponibles: IMDb y Rotten Tomatoes salen de JustWatch, que no tiene Metacritic">vía JustWatch</span>' : '') + (ctags.length ? '<span class="det-tags">' + ctags.map(function (t) { return '<span class="ctag">' + esc(t) + '</span>'; }).join('') + '</span>' : '') + '</div>' +
+    '<div class="det-scores">' + scores + (s.jw ? '<span class="ds-src" title="' + (s.wd.length ? 'OMDb no tenía consultas disponibles: IMDb sale de JustWatch y ' + s.wd.map(function (k) { return SRC[k].label; }).join(' y ') + ' de Wikidata (puede tener unos meses de atraso)' : 'OMDb no tenía consultas disponibles: IMDb y Rotten Tomatoes salen de JustWatch, que no tiene Metacritic') + '">' + (s.wd.length ? 'vía JustWatch y Wikidata' : 'vía JustWatch') + '</span>' : '') + (ctags.length ? '<span class="det-tags">' + ctags.map(function (t) { return '<span class="ctag">' + esc(t) + '</span>'; }).join('') + '</span>' : '') + '</div>' +
     '<div class="det-stars"><span class="stars" id="myStars" role="group" aria-label="Tu puntaje" data-cur="' + stars + '">' + starBtns + '</span>' +
     (stars ? '<button class="star-clear" type="button" data-starclear aria-label="Quitar tu puntaje" title="Quitar tu puntaje">' + ICON.x + '<span>Quitar</span></button>' : '') +
     '<p class="star-hint" id="starHint" aria-live="polite">' + starHintText(stars) + '</p></div>' + duoRowHTML(it) +
@@ -1856,7 +1931,7 @@ function ratingGap() {
     if (nz(sc[src])) return;
     if (sc.noImdb) none++;
     else if (!sc.rec) { if (omdb || (jw && !JW.bad[it.k])) pend++; else later++; }
-    else if (sc.jw) { if (omdb) pend++; else later++; }
+    else if (sc.jw) { if (omdb || wantsScore(sc.rec, src)) pend++; else later++; }
     else none++;
   });
   return { pend: pend, later: later, none: none };
@@ -1869,12 +1944,16 @@ var ratingsForFilter = debounce(function () {
   var src = state.f.ratingSrc, cap = 0;
   if (omdbLive()) cap = Math.max(0, Math.min(300, 1000 - omdbUsage().n - 50));
   /* con JustWatch de respaldo no hay tope: lo que OMDb no llegue a traer hoy lo sigue JustWatch */
-  if (jwScoresLive() && src !== 'mc') cap = 400;
+  if (jwScoresLive() && (src !== 'mc' || (!omdbLive() && wdLive()))) cap = 400;
   if (!cap) return;
   var cand = applyFilters(currentPool(), true).filter(function (it) {
-    var d = state.details[it.k];
+    var d = state.details[it.k], rec = d && d.imdb ? state.omdb[d.imdb] : null;
     if (d && !d.imdb) return false;
-    return !nz(scoresOf(it)[src]) && (!d || wantsScore(state.omdb[d.imdb], src));
+    /* lo que puso Wikidata se vuelve a pedir a OMDb cuando tiene consultas (Wikidata puede estar atrasado) */
+    var sc = scoresOf(it); if (nz(sc[src]) && !(omdbLive() && sc.wd.indexOf(src) >= 0)) return false;
+    /* JustWatch no tiene Metacritic: sin OMDb solo se le pregunta a Wikidata por lo que ya pasó por JustWatch */
+    if (src === 'mc' && !omdbLive() && !rec) return false;
+    return !d || wantsScore(rec, src);
   });
   if (cand.length) wantRatings(cand.slice(0, cap), src);
 }, 600);
@@ -4493,6 +4572,6 @@ function boot() {
   start();
 }
 
-if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') window.__cartelera = { state: state, refresh: refresh, scoreFor: scoreFor, recommend: recommend, curFind: curFind, cur: function () { return CUR; }, openFest: openFest, openGuide: openGuide, rumboOf: rumboOf, rumboOut: rumboOut, itemLabels: itemLabels, openDuo: openDuo, packTaste: packTaste, unpackTaste: unpackTaste, comps: function () { return COMP; }, cloud: function () { return CLOUD; }, cloudSyncModel: cloudSyncModel, allComps: allComps, seenNow: seenNow, guide: function () { return state.guide; }, tasteProfile: tasteProfile, tasteSeeds: tasteSeeds, openReco: openReco, openPerson: openPerson, allSig: allSig, mergeUsers: mergeUsers, normUser: normUser, contentKey: contentKey, listKeys: listKeys, services: function () { return { list: SERVICES, stremio: STREMIO_ON, sig: SVC_SIG }; }, st: function () { return ST; }, isHidden: isHidden, hiddenKeys: hiddenKeys, serviceCatalog: serviceCatalog, summarizeStreams: summarizeStreams, createRadio: createRadio, seedKeys: seedKeys, ext: function () { return EXT; }, jw: function () { return JW; }, scoresOf: scoresOf };
+if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') window.__cartelera = { state: state, refresh: refresh, scoreFor: scoreFor, recommend: recommend, curFind: curFind, cur: function () { return CUR; }, openFest: openFest, openGuide: openGuide, rumboOf: rumboOf, rumboOut: rumboOut, itemLabels: itemLabels, openDuo: openDuo, packTaste: packTaste, unpackTaste: unpackTaste, comps: function () { return COMP; }, cloud: function () { return CLOUD; }, cloudSyncModel: cloudSyncModel, allComps: allComps, seenNow: seenNow, guide: function () { return state.guide; }, tasteProfile: tasteProfile, tasteSeeds: tasteSeeds, openReco: openReco, openPerson: openPerson, allSig: allSig, mergeUsers: mergeUsers, normUser: normUser, contentKey: contentKey, listKeys: listKeys, services: function () { return { list: SERVICES, stremio: STREMIO_ON, sig: SVC_SIG }; }, st: function () { return ST; }, isHidden: isHidden, hiddenKeys: hiddenKeys, serviceCatalog: serviceCatalog, summarizeStreams: summarizeStreams, createRadio: createRadio, seedKeys: seedKeys, ext: function () { return EXT; }, jw: function () { return JW; }, wd: function () { return WD; }, scoresOf: scoresOf };
 boot();
 })();
