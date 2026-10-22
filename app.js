@@ -1120,6 +1120,7 @@ function observeCards() {
 function emptyHTML() {
   var sp = state.special;
   var gap = !sp && state.ui.view === 'catalog' ? ratingGap() : null;
+  if (gap && gap.pend && state.omdbStop) return '<strong>Faltan puntajes</strong><p>OMDb llegó al tope de consultas de hoy y a ' + nf.format(gap.pend) + ' títulos que cumplen el resto de los filtros les falta el puntaje de ' + esc(SRC[state.f.ratingSrc].label) + '. Se completan mañana.</p><button class="btn" type="button" data-incunk>Mostrarlas igual</button>';
   if (gap && gap.pend) return '<strong>Trayendo puntajes…</strong><p>Busco el puntaje de ' + esc(SRC[state.f.ratingSrc].label) + ' de ' + nf.format(gap.pend) + ' títulos que cumplen el resto de los filtros. Van apareciendo solos.</p>';
   if (sp && sp.kind === 'search') return '<strong>Sin resultados</strong><p>TMDB no encontró nada para «' + esc(sp.q) + '».</p>';
   if (sp && sp.error) return '<strong>No pude cargar esto</strong><p>' + esc(sp.error) + '</p><button class="btn" type="button" data-back>Volver</button>';
@@ -1139,9 +1140,10 @@ function emptyHTML() {
 }
 function ratingGapHTML() {
   var g = ratingGap(); if (!g || (!g.pend && !g.none)) return '';
-  var name = SRC[state.f.ratingSrc].label, out = [];
-  if (g.pend) out.push('trayendo el puntaje de ' + name + ' de ' + nf.format(g.pend) + ' más');
-  if (g.none && !state.f.includeUnknown) out.push(nf.format(g.none) + ' sin dato de ' + name + ' en OMDb <button class="linkbtn" type="button" data-incunk>mostrarlas</button>');
+  var name = SRC[state.f.ratingSrc].label, out = [], show = '<button class="linkbtn" type="button" data-incunk>mostrarlas</button>';
+  if (g.pend && state.omdbStop) out.push('OMDb llegó al tope de consultas de hoy: a ' + nf.format(g.pend) + ' les falta el puntaje de ' + name + ' y se completan mañana' + (state.f.includeUnknown ? '' : ' · ' + show));
+  else if (g.pend) out.push('trayendo el puntaje de ' + name + ' de ' + nf.format(g.pend) + ' más');
+  if (g.none && !state.f.includeUnknown) out.push(nf.format(g.none) + ' sin dato de ' + name + ' en OMDb ' + show);
   return '<small class="count-note">' + out.join(' · ') + '</small>';
 }
 function renderCount() {
