@@ -1,6 +1,6 @@
 /* WatchListo: service worker. Solo maneja archivos propios del sitio;
    nunca toca pedidos a otros sitios. */
-const CACHE = 'cartelera-v16';
+const CACHE = 'cartelera-v17';
 const ASSETS = [
   './', './index.html', './styles.css', './app.js', './manifest.webmanifest', './curaduria.json',
   './icons/icon-192.png', './icons/icon-512.png', './icons/maskable-512.png',

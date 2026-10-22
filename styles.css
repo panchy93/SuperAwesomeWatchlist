@@ -233,6 +233,7 @@ dialog[open].fallback{position:fixed;top:14px;left:0;right:0;margin:0 auto;z-ind
 .ds b{font:800 20px/1 var(--f-display);font-variant-numeric:tabular-nums}
 .ds i{font-style:normal;font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
 .ds.na b{color:var(--muted);font-size:16px}
+.ds-src{font-size:11px;font-weight:600;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:2px 8px;cursor:help}
 .det-tags{display:flex;flex-wrap:wrap;gap:5px}
 .det-tags .ctag{font-size:11.5px;padding:2px 8px}
 .det-stars{display:flex;flex-wrap:wrap;align-items:center;gap:2px 12px}

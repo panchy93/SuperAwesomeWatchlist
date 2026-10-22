@@ -82,6 +82,8 @@ La ficha muestra, por cada servicio, la mejor calidad (SD, HD, 4K), Dolby Vision
 
 JustWatch no deja que otras páginas lo consulten desde el navegador, así que la app le pregunta a un Worker de Cloudflare propio (`tools/justwatch-worker.js`): solo le responde a esta página, no usa claves y guarda cada respuesta un día. Para instalarlo: Cloudflare → Workers & Pages → Create Worker, pegar el archivo y publicar. Su dirección va en `JW_PROXY` (`app.js`) y en `connect-src` de `index.html`. Sin Worker configurado, la ficha muestra la lista simple de servicios y un link a JustWatch.
 
+**Respaldo de puntajes.** El Worker (versión 2) también devuelve los puntajes de IMDb y Rotten Tomatoes que tiene JustWatch. Cuando OMDb llega al tope de consultas del día (o rechaza la clave), la app sigue con JustWatch sin que haya que hacer nada: primero mira los puntajes de OMDb que ya consultó alguien de la app y, si no están, le pregunta al Worker. JustWatch no tiene Metacritic, así que con un mínimo de Metacritic hay que esperar a OMDb. Lo que viene de JustWatch queda marcado (la ficha dice «vía JustWatch») y OMDb lo completa al día siguiente si le falta el puntaje que se está filtrando, o al abrir la ficha. Si el Worker publicado es el viejo, el panel de filtros avisa que hay que volver a pegar `tools/justwatch-worker.js` en Cloudflare.
+
 ## Ocultar lo que no te interesa
 
 **No me interesa** (en el + de cada póster, en la ficha o en los resultados del acomodador) saca un título del catálogo, las recomendaciones, los festivales y el acomodador. Cuenta como un "no" suave para tu perfil de gusto. Las ocultas quedan en **Listas → Ocultas**, desde donde se vuelven a mostrar. Se sincronizan como el resto de tus datos.
@@ -99,4 +101,4 @@ Arriba, pestañas para elegir la lista (más **+ Nueva**). Debajo del título, q
 
 ## Más resultados
 
-Al llegar al final, si lo que hay no alcanza, la app le pide a TMDB otra tanda de tus servicios con los filtros puestos (género, años, duración, rating de TMDB y orden), hasta avisar que no hay más. Con un mínimo de IMDb, Rotten Tomatoes o Metacritic, los puntajes que faltan se traen solos para lo que cumple el resto de los filtros (dentro del límite diario de OMDb).
+Al llegar al final, si lo que hay no alcanza, la app le pide a TMDB otra tanda de tus servicios con los filtros puestos (género, años, duración, rating de TMDB y orden), hasta avisar que no hay más. Con un mínimo de IMDb, Rotten Tomatoes o Metacritic, los puntajes que faltan se traen solos para lo que cumple el resto de los filtros: de OMDb mientras tenga consultas, y de JustWatch cuando se le acaban (IMDb y Rotten Tomatoes).

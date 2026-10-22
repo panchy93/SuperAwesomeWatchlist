@@ -325,7 +325,8 @@ async function fetchOmdbDirect(imdb) {
   var j; try { j = await res.json(); } catch (e) { throw AppError('omdb', 'OMDb devolvió una respuesta que no entiendo.'); }
   if (j.Response === 'False') {
     var m = String(j.Error || '');
-    if (/limit/i.test(m)) { state.omdbStop = 'OMDb llegó al tope de consultas de hoy. Mañana sigue solo.'; throw AppError('omdb-limit', state.omdbStop); }
+    /* el tope queda anotado para hoy, así al recargar no se gastan pedidos que OMDb va a rechazar */
+    if (/limit/i.test(m)) { u.n = Math.max(u.n, 1000); LS.set('omdbUsage', u); state.omdbStop = 'OMDb llegó al tope de consultas de hoy. Mañana sigue solo.'; throw AppError('omdb-limit', state.omdbStop); }
     if (/api key/i.test(m)) { state.omdbStop = 'OMDb rechazó la clave. Revisá que esté activada (llega un mail con el link).'; throw AppError('omdb-auth', state.omdbStop); }
     return { none: true, at: Date.now() };
   }
@@ -525,7 +526,7 @@ async function fetchCatalog(type) {
 }
 
 /* ---------- enrichment (runtime, IMDb id, OMDb ratings) ---------- */
-var Q = { hi: [], lo: [], queued: new Set(), running: 0, max: 6, om: [], omQueued: new Set(), omRunning: 0, omMax: 3, wantOm: new Set() };
+var Q = { hi: [], lo: [], queued: new Set(), running: 0, max: 6, om: [], omQueued: new Set(), omRunning: 0, omMax: 3, jwMax: 6, wantOm: new Map() };
 
 function liteFromFull(d, type) {
   var imdb = d.imdb_id || dig(d, 'external_ids.imdb_id') || null;
@@ -560,27 +561,64 @@ function pumpDetails() {
   }
   progressNote();
 }
-function wantRatings(items) {
-  if (!state.settings.omdbKey || state.omdbStop) return;
+/* Puntajes de IMDb, Rotten Tomatoes y Metacritic. Primero OMDb, que tiene un tope de consultas por
+   día. Cuando se queda sin consultas (o rechaza la clave), IMDb y Rotten Tomatoes salen de JustWatch
+   por el Worker; JustWatch no tiene Metacritic. Lo que llega de JustWatch queda marcado (src 'jw') y,
+   si le falta el puntaje que se está filtrando, OMDb lo completa cuando vuelve a tener consultas. */
+function omdbLive() { return !!state.settings.omdbKey && !state.omdbStop; }
+function jwScoresLive() { return !!JW_PROXY && !JW.off && !JW.old; }
+function scoringLive() { return omdbLive() || jwScoresLive(); }
+/* ¿hay que pedir puntajes para este registro? src: el puntaje por el que se filtra, si hay */
+function wantsScore(o, src) {
+  if (!o) return true;
+  if (o.src !== 'jw' || !omdbLive()) return false;
+  return src ? !nz(o[src]) : !!o.none;
+}
+/* guarda un resultado sin pisar lo de OMDb con lo de JustWatch; si OMDb llega después, lo que a OMDb
+   le falte se completa con lo que ya había traído JustWatch */
+function putScores(imdb, r) {
+  if (!r) return false;
+  var old = state.omdb[imdb];
+  if (r.src === 'jw') { if (old && old.src !== 'jw') return false; }
+  else if (old && old.src === 'jw') {
+    ['imdb', 'votes', 'rt'].forEach(function (k) { if (!nz(r[k]) && nz(old[k])) r[k] = old[k]; });
+    if (nz(r.imdb) || nz(r.rt) || nz(r.mc)) delete r.none;
+  }
+  state.omdb[imdb] = r; saveCachesSoon(); return true;
+}
+function omdbToJwNote(e) {
+  return e && e.code === 'omdb-auth' ? e.message + ' Mientras tanto, IMDb y Rotten Tomatoes salen de JustWatch.'
+    : 'OMDb llegó al tope de consultas de hoy. Sigo con JustWatch: IMDb y Rotten Tomatoes, sin Metacritic.';
+}
+function wantRatings(items, src) {
+  if (!state.settings.omdbKey || !scoringLive()) return;
   var needDetails = [];
   items.forEach(function (it) {
     var d = state.details[it.k];
-    if (d) { if (d.imdb && !state.omdb[d.imdb]) queueOmdb(d.imdb, it); }
-    else { Q.wantOm.add(it.k); needDetails.push(it); }
+    if (d) { if (d.imdb) queueOmdb(d.imdb, it, src); }
+    else { Q.wantOm.set(it.k, src || null); needDetails.push(it); }
   });
   if (needDetails.length) wantDetails(needDetails, 'hi');
   pumpOmdb();
 }
-function queueOmdb(imdb, it) { if (Q.omQueued.has(imdb) || state.omdb[imdb]) return; Q.omQueued.add(imdb); Q.om.push([imdb, it]); }
+function queueOmdb(imdb, it, src) { if (Q.omQueued.has(imdb) || !wantsScore(state.omdb[imdb], src)) return; Q.omQueued.add(imdb); Q.om.push([imdb, it, src || null]); }
 function pumpOmdb() {
-  while (Q.omRunning < Q.omMax && Q.om.length && !state.omdbStop) {
-    var job = Q.om.shift(); Q.omRunning++;
-    (function (imdb, it) {
-      fetchOmdb(imdb)
-        .then(function (r) { state.omdb[imdb] = r; saveCachesSoon(); onEnriched(it); })
-        .catch(function (e) { if (e.code === 'omdb-limit' || e.code === 'omdb-auth') { Q.om.length = 0; Q.omQueued.clear(); renderRailStatus(); toast(e.message); } })
-        .then(function () { Q.omRunning--; Q.omQueued.delete(imdb); pumpOmdb(); progressNote(); });
-    })(job[0], job[1]);
+  if (!scoringLive() && Q.om.length) { Q.om.forEach(function (j) { Q.omQueued.delete(j[0]); }); Q.om.length = 0; }
+  while (Q.om.length && scoringLive() && Q.omRunning < (omdbLive() ? Q.omMax : Q.jwMax)) {
+    var job = Q.om.shift();
+    if (!wantsScore(state.omdb[job[0]], job[2])) { Q.omQueued.delete(job[0]); continue; }
+    Q.omRunning++;
+    (function (imdb, it, src, viaJw) {
+      (viaJw ? fetchScoresNoOmdb(it, imdb) : fetchOmdb(imdb))
+        .then(function (r) { if (putScores(imdb, r)) onEnriched(it); })
+        .catch(function (e) {
+          if (e.code !== 'omdb-limit' && e.code !== 'omdb-auth' && e.code !== 'omdb-stop') return;
+          if (e.code !== 'omdb-stop') { renderRailStatus(); toast(jwScoresLive() ? omdbToJwNote(e) : e.message); }
+          /* OMDb se cortó con este pedido en curso: vuelve a la fila y lo atiende JustWatch */
+          if (jwScoresLive()) { Q.om.unshift([imdb, it, src]); return 'again'; }
+        })
+        .then(function (again) { Q.omRunning--; if (again !== 'again') Q.omQueued.delete(imdb); pumpOmdb(); progressNote(); });
+    })(job[0], job[1], job[2], !omdbLive());
   }
   progressNote();
 }
@@ -588,7 +626,7 @@ var countSoon = debounce(function () { renderCount(); }, 800);
 function onEnriched(it) {
   if (omdbRatingFilter()) countSoon();
   if (ST.wait.has(it.k)) { ST.wait.delete(it.k); wantStremio([it]); }
-  if (Q.wantOm.has(it.k)) { Q.wantOm.delete(it.k); var d = state.details[it.k]; if (d && d.imdb) { queueOmdb(d.imdb, it); pumpOmdb(); } }
+  if (Q.wantOm.has(it.k)) { var wsrc = Q.wantOm.get(it.k); Q.wantOm.delete(it.k); var d = state.details[it.k]; if (d && d.imdb) { queueOmdb(d.imdb, it, wsrc); pumpOmdb(); } }
   updateCard(it.k);
   if (dependsOnEnrichment()) softRefresh();
   railStatusSoon();
@@ -602,7 +640,7 @@ var railStatusSoon = debounce(function () { renderRailStatus(); }, 600);
 function progressNote() {
   var el = $('#enrichNote'); if (!el) return;
   var pend = Q.hi.length + Q.lo.length + Q.running, om = Q.om.length + Q.omRunning;
-  el.textContent = om ? 'Trayendo ratings… quedan ' + nf.format(om) : (pend > 8 ? 'Completando duraciones… quedan ' + nf.format(pend) : '');
+  el.textContent = om ? 'Trayendo ratings' + (omdbLive() ? '' : ' de JustWatch') + '… quedan ' + nf.format(om) : (pend > 8 ? 'Completando duraciones… quedan ' + nf.format(pend) : '');
 }
 
 /* ---------- Stremio (vía Torrentio) ----------
@@ -695,7 +733,8 @@ function stremioLangs(r) {
 /* ---------- JustWatch (calidad e idiomas por servicio, vía tu Worker de Cloudflare) ----------
    JustWatch no deja que otras páginas lo consulten desde el navegador, así que se le pregunta a
    un Worker propio (tools/justwatch-worker.js) que solo le responde a esta página. Se pide al abrir
-   una ficha, y la respuesta queda guardada unos días en el dispositivo. */
+   una ficha, y la respuesta queda guardada unos días en el dispositivo. El Worker también trae los
+   puntajes de IMDb y Rotten Tomatoes, que se usan cuando OMDb se queda sin consultas. */
 var JW_PROXY = 'https://watchlisto-jw.pfiguerero.workers.dev';
 var JW_LANG_RE = /^[a-z]{2,3}(-[A-Za-z0-9]{2,4})?$/, JW_TECH_RE = /^[A-Z0-9_]{2,30}$/;
 var JW_LANG = { es: 'español', en: 'inglés', pt: 'portugués', fr: 'francés', it: 'italiano', de: 'alemán', ja: 'japonés', ko: 'coreano', zh: 'chino', cmn: 'chino', yue: 'cantonés', hi: 'hindi', ru: 'ruso', pl: 'polaco', nl: 'neerlandés', sv: 'sueco', da: 'danés', no: 'noruego', nb: 'noruego', fi: 'finlandés', tr: 'turco', ar: 'árabe', he: 'hebreo', th: 'tailandés', id: 'indonesio', ms: 'malayo', cs: 'checo', hu: 'húngaro', ro: 'rumano', el: 'griego', uk: 'ucraniano', ca: 'catalán', eu: 'euskera', gl: 'gallego', ta: 'tamil', te: 'telugu', vi: 'vietnamita', fil: 'filipino', tl: 'tagalo', bg: 'búlgaro', hr: 'croata', sr: 'serbio', sk: 'eslovaco', sl: 'esloveno', lt: 'lituano', lv: 'letón', et: 'estonio', is: 'islandés', fa: 'persa', ur: 'urdu', bn: 'bengalí' };
@@ -724,26 +763,64 @@ function pruneJw(o) {
   Object.keys(o || {}).forEach(function (k) { var v = o[k]; if (validKey(k) && v && +v.at > 0 && t - v.at < (v.f ? 3 : 1) * DAY) out[k] = { at: +v.at, f: !!v.f, o: cleanJwOffers(v.o) }; });
   return out;
 }
-var JW = { cache: pruneJw(LS.get('jw', {})), loading: {}, fails: 0, off: false };
+var JW = { cache: pruneJw(LS.get('jw', {})), loading: {}, fails: 0, off: false, old: false, bad: {} };
 var saveJwSoon = debounce(function () {
   var keys = Object.keys(JW.cache);
   if (keys.length > 600) keys.sort(function (a, b) { return JW.cache[a].at - JW.cache[b].at; }).slice(0, keys.length - 600).forEach(function (k) { delete JW.cache[k]; });
   LS.set('jw', JW.cache);
 }, 1500);
-async function wantJw(it, full) {
-  if (!JW_PROXY || JW.off || !full || JW.cache[it.k] || JW.loading[it.k]) return;
-  JW.loading[it.k] = true;
-  var y = parseInt(String(full.release_date || full.first_air_date || '').slice(0, 4), 10) || it.y || '';
+/* le pregunta al Worker por un título (con la ficha completa de TMDB si ya está, o con lo del catálogo) */
+async function jwFetch(it, full) {
+  var f = full || {};
+  var y = parseInt(String(f.release_date || f.first_air_date || '').slice(0, 4), 10) || it.y || '';
   var url = JW_PROXY + '/?tmdb=' + (+it.id) + '&type=' + (it.type === 'tv' ? 'tv' : 'movie') +
-    '&ot=' + encodeURIComponent(String(full.original_title || full.original_name || '').slice(0, 120)) +
-    '&t=' + encodeURIComponent(String(full.title || full.name || it.t || '').slice(0, 120)) + (y ? '&y=' + y : '');
+    '&ot=' + encodeURIComponent(String(f.original_title || f.original_name || it.ot || '').slice(0, 120)) +
+    '&t=' + encodeURIComponent(String(f.title || f.name || it.t || '').slice(0, 120)) + (y ? '&y=' + y : '');
   try {
     var res = await fetch(url, { credentials: 'omit', referrerPolicy: 'no-referrer' });
     if (!res.ok) throw AppError('jw', 'JustWatch respondió ' + res.status);
     var j = await res.json();
-    JW.cache[it.k] = { at: Date.now(), f: !!(j && j.found), o: cleanJwOffers(j && j.offers) }; JW.fails = 0; saveJwSoon();
+    JW.fails = 0;
+    /* el Worker viejo (versión 1) no trae puntajes: sirve para calidad e idiomas, no como respaldo de OMDb */
+    if (!j || !(+j.v >= 2)) JW.old = true;
+    return j;
   } catch (e) {
-    if (++JW.fails >= 3) JW.off = true;
+    if (++JW.fails >= 5) JW.off = true;
+    throw e;
+  }
+}
+/* puntajes de la respuesta del Worker, con el mismo formato que los de OMDb y marcados como de JustWatch */
+function jwScoreRec(j, imdb) {
+  if (!j || !(+j.v >= 2)) return null;
+  var r = { at: Date.now(), src: 'jw' }, sc = j.sc && typeof j.sc === 'object' ? j.sc : null;
+  if (sc && (typeof sc.m !== 'string' || sc.m === imdb)) {
+    var i = +sc.i, iv = +sc.iv, rt = +sc.rt;
+    if (isFinite(i) && i > 0 && i <= 10) r.imdb = Math.round(i * 10) / 10;
+    if (isFinite(iv) && iv > 0 && iv < 1e8) r.votes = Math.round(iv);
+    if (sc.rt != null && isFinite(rt) && rt >= 0 && rt <= 100) r.rt = Math.round(rt);
+  }
+  if (!nz(r.imdb) && !nz(r.rt)) r.none = true;
+  return r;
+}
+/* sin OMDb: primero lo que ya consultó alguien de la app (puntajes de OMDb compartidos), si no, JustWatch */
+async function fetchScoresNoOmdb(it, imdb) {
+  var c = await omdbFromCloud(imdb);
+  return c || fetchJwScore(it, imdb);
+}
+async function fetchJwScore(it, imdb) {
+  if (JW.bad[it.k]) return null;
+  try { return jwScoreRec(await jwFetch(it, null), imdb); }
+  catch (e) { JW.bad[it.k] = 1; throw e; }
+}
+async function wantJw(it, full) {
+  if (!JW_PROXY || JW.off || !full || JW.cache[it.k] || JW.loading[it.k]) return;
+  JW.loading[it.k] = true;
+  try {
+    var j = await jwFetch(it, full);
+    JW.cache[it.k] = { at: Date.now(), f: !!(j && j.found), o: cleanJwOffers(j && j.offers) }; saveJwSoon();
+    var d = state.details[it.k];
+    if (d && d.imdb && putScores(d.imdb, jwScoreRec(j, d.imdb))) updateCard(it.k);
+  } catch (e) {
   } finally {
     delete JW.loading[it.k];
     if (state.detail && state.detail.k === it.k) renderDetail();
@@ -782,7 +859,7 @@ function scoresOf(it) {
     tmdb: it.vc > 0 ? it.v : null,
     imdb: o && nz(o.imdb) ? o.imdb : null, votes: o && o.votes ? o.votes : null,
     rt: o && nz(o.rt) ? o.rt : null, mc: o && nz(o.mc) ? o.mc : null,
-    omdbDone: !!o, noImdb: !!(d && !d.imdb)
+    omdbDone: !!o, noImdb: !!(d && !d.imdb), jw: !!(o && o.src === 'jw'), rec: o
   };
 }
 function scoreFor(it, src) {
@@ -964,7 +1041,7 @@ function scoresHTML(it) {
   if (nz(s.rt)) push('rt', s.rt);
   if (nz(s.mc)) push('mc', s.mc);
   if (on === 'avg') { var a = scoreFor(it, 'avg'); if (nz(a)) out.unshift('<span class="sc on"><i>Prom.</i>' + Math.round(a) + '</span>'); }
-  if (state.settings.omdbKey && !s.omdbDone && !s.noImdb && !state.omdbStop) out.push('<span class="sc wait">IMDb…</span>');
+  if (state.settings.omdbKey && !s.omdbDone && !s.noImdb && scoringLive()) out.push('<span class="sc wait">IMDb…</span>');
   return out.join('');
 }
 function subHTML(it) {
@@ -1120,8 +1197,8 @@ function observeCards() {
 function emptyHTML() {
   var sp = state.special;
   var gap = !sp && state.ui.view === 'catalog' ? ratingGap() : null;
-  if (gap && gap.pend && state.omdbStop) return '<strong>Faltan puntajes</strong><p>OMDb llegó al tope de consultas de hoy y a ' + nf.format(gap.pend) + ' títulos que cumplen el resto de los filtros les falta el puntaje de ' + esc(SRC[state.f.ratingSrc].label) + '. Se completan mañana.</p><button class="btn" type="button" data-incunk>Mostrarlas igual</button>';
-  if (gap && gap.pend) return '<strong>Trayendo puntajes…</strong><p>Busco el puntaje de ' + esc(SRC[state.f.ratingSrc].label) + ' de ' + nf.format(gap.pend) + ' títulos que cumplen el resto de los filtros. Van apareciendo solos.</p>';
+  if (gap && gap.pend) return '<strong>Trayendo puntajes…</strong><p>Busco el puntaje de ' + esc(SRC[state.f.ratingSrc].label) + ' de ' + nf.format(gap.pend) + ' títulos que cumplen el resto de los filtros' + (omdbLive() ? '' : ' (OMDb llegó al tope de hoy, así que los busco en JustWatch)') + '. Van apareciendo solos.</p>';
+  if (gap && gap.later) return '<strong>Faltan puntajes</strong><p>' + laterText(gap.later, true) + '</p><button class="btn" type="button" data-incunk>Mostrarlas igual</button>';
   if (sp && sp.kind === 'search') return '<strong>Sin resultados</strong><p>TMDB no encontró nada para «' + esc(sp.q) + '».</p>';
   if (sp && sp.error) return '<strong>No pude cargar esto</strong><p>' + esc(sp.error) + '</p><button class="btn" type="button" data-back>Volver</button>';
   if (sp) return '<strong>Nada coincide</strong><p>Hay ' + nf.format((sp.items || []).length) + ' títulos, pero ninguno pasa los filtros.</p><button class="btn" type="button" data-clear>Limpiar filtros</button>';
@@ -1138,12 +1215,22 @@ function emptyHTML() {
   var extra = state.q && state.q.length >= 2 ? '<button class="btn btn-accent" type="button" data-global>Buscar «' + esc(state.q) + '» en todo TMDB</button>' : '';
   return '<strong>Nada coincide</strong><p>Probá bajar el rating mínimo, sacar algún género o prender otro servicio.</p><div class="pick-bar">' + extra + '<button class="btn" type="button" data-clear>Limpiar filtros</button></div>';
 }
+/* los que esperan a OMDb: JustWatch no tiene ese puntaje (o no está disponible) y OMDb ya no tiene consultas hoy */
+function laterText(n, full) {
+  var src = state.f.ratingSrc, name = SRC[src].label, N = nf.format(n);
+  var auth = state.omdbStop && !/tope/.test(state.omdbStop), when = auth ? 'cuando OMDb vuelva a aceptar la clave' : 'mañana';
+  if (jwScoresLive() && src !== 'mc') return (full ? 'JustWatch no tiene el puntaje de ' + name + ' de ' + N + ' títulos que cumplen el resto de los filtros; ' : 'JustWatch no tiene el puntaje de ' + name + ' de ' + N + ': ') + 'los completa OMDb ' + when;
+  var why = auth ? 'OMDb no acepta la clave' : 'OMDb llegó al tope de consultas de hoy';
+  var mc = src === 'mc' && jwScoresLive() ? ' (JustWatch no tiene Metacritic)' : '';
+  return why + (full ? ' y a ' + N + ' títulos que cumplen el resto de los filtros' : ': a ' + N) + ' les falta el puntaje de ' + name + mc + '. Se completan ' + when;
+}
 function ratingGapHTML() {
-  var g = ratingGap(); if (!g || (!g.pend && !g.none)) return '';
-  var name = SRC[state.f.ratingSrc].label, out = [], show = '<button class="linkbtn" type="button" data-incunk>mostrarlas</button>';
-  if (g.pend && state.omdbStop) out.push('OMDb llegó al tope de consultas de hoy: a ' + nf.format(g.pend) + ' les falta el puntaje de ' + name + ' y se completan mañana' + (state.f.includeUnknown ? '' : ' · ' + show));
-  else if (g.pend) out.push('trayendo el puntaje de ' + name + ' de ' + nf.format(g.pend) + ' más');
-  if (g.none && !state.f.includeUnknown) out.push(nf.format(g.none) + ' sin dato de ' + name + ' en OMDb ' + show);
+  var g = ratingGap(); if (!g || (!g.pend && !g.later && !g.none)) return '';
+  var name = SRC[state.f.ratingSrc].label, out = [], inc = state.f.includeUnknown;
+  if (g.pend) out.push('trayendo el puntaje de ' + name + ' de ' + nf.format(g.pend) + ' más' + (omdbLive() ? '' : ' desde JustWatch'));
+  if (g.later) out.push(laterText(g.later));
+  if (g.none && !inc) out.push(nf.format(g.none) + ' sin dato de ' + name);
+  if ((g.later || g.none) && !inc) out.push('<button class="linkbtn" type="button" data-incunk>mostrarlas</button>');
   return '<small class="count-note">' + out.join(' · ') + '</small>';
 }
 function renderCount() {
@@ -1318,7 +1405,10 @@ function renderRailStatus() {
     out.push('<p><b>' + nf.format(cat.items.length) + '</b> ' + (type === 'movie' ? 'películas' : 'series') + ' en el catálogo · ' + (ago < 1 ? 'leído recién' : 'leído hace ' + ago + ' h') + ' · <button class="linkbtn" type="button" data-reload>Actualizar</button></p>');
   }
   if (!state.settings.omdbKey && !(cloudIn() && !CLOUD.admin)) out.push('<p>Sumá una clave gratis de OMDb para ver IMDb, Rotten Tomatoes y Metacritic. <button class="linkbtn" type="button" data-settings>Configurar</button></p>');
-  else if (state.omdbStop) out.push('<p>' + esc(state.omdbStop) + '</p>');
+  else if (state.omdbStop) {
+    out.push('<p>' + esc(state.omdbStop) + (jwScoresLive() ? ' Mientras tanto, IMDb y Rotten Tomatoes salen de JustWatch (ahí no está Metacritic).' : '') + '</p>');
+    if (JW.old && (!cloudIn() || CLOUD.admin)) out.push('<p>El Worker de JustWatch está desactualizado y no trae puntajes. Pegá de nuevo el código de tools/justwatch-worker.js en Cloudflare y tocá Deploy.</p>');
+  }
   else if (state.filtered.length) {
     var have = 0, none = 0;
     state.filtered.forEach(function (it) { var d = state.details[it.k]; if (d && d.imdb && state.omdb[d.imdb]) have++; else if (d && !d.imdb) none++; });
@@ -1373,12 +1463,18 @@ async function openDetail(it, pick) {
     state.detail.full = d;
     state.details[it.k] = liteFromFull(d, it.type); saveCachesSoon(); updateCard(it.k);
     if (!it.p && safePath(d.poster_path)) it.p = safePath(d.poster_path);
-    wantStremio([it], true); wantJw(it, d);
+    wantStremio([it], true); var jwP = wantJw(it, d);
     renderDetail();
-    var imdb = state.details[it.k].imdb;
-    if (state.settings.omdbKey && imdb && !state.omdb[imdb] && !state.omdbStop) {
-      try { state.omdb[imdb] = await fetchOmdb(imdb); saveCachesSoon(); updateCard(it.k); if (state.detail && state.detail.k === it.k) renderDetail(); }
-      catch (e) { if (e.code === 'omdb-limit' || e.code === 'omdb-auth') toast(e.message); }
+    var imdb = state.details[it.k].imdb, rec = imdb ? state.omdb[imdb] : null;
+    var shown = function () { updateCard(it.k); if (state.detail && state.detail.k === it.k) renderDetail(); };
+    /* OMDb trae los tres puntajes; si lo que hay vino de JustWatch, se completa con Metacritic */
+    if (state.settings.omdbKey && imdb && (!rec || rec.src === 'jw') && omdbLive()) {
+      try { if (putScores(imdb, await fetchOmdb(imdb))) shown(); }
+      catch (e) { if (e.code === 'omdb-limit' || e.code === 'omdb-auth') { renderRailStatus(); toast(jwScoresLive() ? omdbToJwNote(e) : e.message); } }
+    }
+    if (state.settings.omdbKey && imdb && !state.omdb[imdb] && jwScoresLive()) {
+      await jwP;
+      if (!state.omdb[imdb] && jwScoresLive()) { try { if (putScores(imdb, await fetchScoresNoOmdb(it, imdb))) shown(); } catch (e) {} }
     }
   } catch (e) {
     if (state.detail && state.detail.k === it.k) { state.detail.error = e.message; renderDetail(); }
@@ -1512,7 +1608,7 @@ function renderDetail() {
       (D.pick ? '<button class="btn btn-sm" type="button" data-repick>Otra opción</button>' : '') +
     '</div>';
   var partA =
-    '<div class="det-scores">' + scores + (ctags.length ? '<span class="det-tags">' + ctags.map(function (t) { return '<span class="ctag">' + esc(t) + '</span>'; }).join('') + '</span>' : '') + '</div>' +
+    '<div class="det-scores">' + scores + (s.jw ? '<span class="ds-src" title="OMDb no tenía consultas disponibles: IMDb y Rotten Tomatoes salen de JustWatch, que no tiene Metacritic">vía JustWatch</span>' : '') + (ctags.length ? '<span class="det-tags">' + ctags.map(function (t) { return '<span class="ctag">' + esc(t) + '</span>'; }).join('') + '</span>' : '') + '</div>' +
     '<div class="det-stars"><span class="stars" id="myStars" role="group" aria-label="Tu puntaje" data-cur="' + stars + '">' + starBtns + '</span>' +
     (stars ? '<button class="star-clear" type="button" data-starclear aria-label="Quitar tu puntaje" title="Quitar tu puntaje">' + ICON.x + '<span>Quitar</span></button>' : '') +
     '<p class="star-hint" id="starHint" aria-live="polite">' + starHintText(stars) + '</p></div>' + duoRowHTML(it) +
@@ -1751,26 +1847,36 @@ async function extendCatalog() {
 }
 function omdbRatingFilter() { var f = state.f; return f.ratingMin > 0 && f.ratingSrc !== 'tmdb' && f.ratingSrc !== 'avg'; }
 /* cuántos de los que cumplen el resto de los filtros todavía no tienen el puntaje elegido, y cuántos no lo tienen en OMDb */
+/* pend: se están trayendo · later: esperan a que OMDb vuelva a tener consultas · none: no hay dato */
 function ratingGap() {
   if (!omdbRatingFilter() || !state.settings.omdbKey) return null;
-  var src = state.f.ratingSrc, pend = 0, none = 0;
+  var src = state.f.ratingSrc, pend = 0, later = 0, none = 0, omdb = omdbLive(), jw = jwScoresLive() && src !== 'mc';
   applyFilters(currentPool(), true).forEach(function (it) {
     var sc = scoresOf(it);
     if (nz(sc[src])) return;
-    if (sc.omdbDone || sc.noImdb) none++; else pend++;
+    if (sc.noImdb) none++;
+    else if (!sc.rec) { if (omdb || (jw && !JW.bad[it.k])) pend++; else later++; }
+    else if (sc.jw) { if (omdb) pend++; else later++; }
+    else none++;
   });
-  return { pend: pend, none: none };
+  return { pend: pend, later: later, none: none };
 }
 var saveCatalogSoon = debounce(function (type) { var c = state.catalogs[type]; if (c) LS.set('catalog.' + type, c); }, 2000);
 /* con un mínimo de IMDb, Rotten Tomatoes o Metacritic, se traen esos puntajes para lo que cumple
    el resto de los filtros (si no, quedan afuera por falta de dato, no por puntaje) */
 var ratingsForFilter = debounce(function () {
-  var f = state.f;
-  if (!(f.ratingMin > 0) || f.ratingSrc === 'tmdb' || f.ratingSrc === 'avg' || !state.settings.omdbKey || state.omdbStop) return;
-  if (state.ui.view === 'profile') return;
-  var left = 1000 - omdbUsage().n; if (left < 60) return;
-  var cand = applyFilters(currentPool(), true).filter(function (it) { var sc = scoresOf(it); return !sc.omdbDone && !sc.noImdb; });
-  if (cand.length) wantRatings(cand.slice(0, Math.min(300, left - 50)));
+  if (!omdbRatingFilter() || !state.settings.omdbKey || state.ui.view === 'profile') return;
+  var src = state.f.ratingSrc, cap = 0;
+  if (omdbLive()) cap = Math.max(0, Math.min(300, 1000 - omdbUsage().n - 50));
+  /* con JustWatch de respaldo no hay tope: lo que OMDb no llegue a traer hoy lo sigue JustWatch */
+  if (jwScoresLive() && src !== 'mc') cap = 400;
+  if (!cap) return;
+  var cand = applyFilters(currentPool(), true).filter(function (it) {
+    var d = state.details[it.k];
+    if (d && !d.imdb) return false;
+    return !nz(scoresOf(it)[src]) && (!d || wantsScore(state.omdb[d.imdb], src));
+  });
+  if (cand.length) wantRatings(cand.slice(0, cap), src);
 }, 600);
 
 /* ---------- personas ---------- */
@@ -4387,6 +4493,6 @@ function boot() {
   start();
 }
 
-if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') window.__cartelera = { state: state, refresh: refresh, scoreFor: scoreFor, recommend: recommend, curFind: curFind, cur: function () { return CUR; }, openFest: openFest, openGuide: openGuide, rumboOf: rumboOf, rumboOut: rumboOut, itemLabels: itemLabels, openDuo: openDuo, packTaste: packTaste, unpackTaste: unpackTaste, comps: function () { return COMP; }, cloud: function () { return CLOUD; }, cloudSyncModel: cloudSyncModel, allComps: allComps, seenNow: seenNow, guide: function () { return state.guide; }, tasteProfile: tasteProfile, tasteSeeds: tasteSeeds, openReco: openReco, openPerson: openPerson, allSig: allSig, mergeUsers: mergeUsers, normUser: normUser, contentKey: contentKey, listKeys: listKeys, services: function () { return { list: SERVICES, stremio: STREMIO_ON, sig: SVC_SIG }; }, st: function () { return ST; }, isHidden: isHidden, hiddenKeys: hiddenKeys, serviceCatalog: serviceCatalog, summarizeStreams: summarizeStreams, createRadio: createRadio, seedKeys: seedKeys, ext: function () { return EXT; } };
+if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') window.__cartelera = { state: state, refresh: refresh, scoreFor: scoreFor, recommend: recommend, curFind: curFind, cur: function () { return CUR; }, openFest: openFest, openGuide: openGuide, rumboOf: rumboOf, rumboOut: rumboOut, itemLabels: itemLabels, openDuo: openDuo, packTaste: packTaste, unpackTaste: unpackTaste, comps: function () { return COMP; }, cloud: function () { return CLOUD; }, cloudSyncModel: cloudSyncModel, allComps: allComps, seenNow: seenNow, guide: function () { return state.guide; }, tasteProfile: tasteProfile, tasteSeeds: tasteSeeds, openReco: openReco, openPerson: openPerson, allSig: allSig, mergeUsers: mergeUsers, normUser: normUser, contentKey: contentKey, listKeys: listKeys, services: function () { return { list: SERVICES, stremio: STREMIO_ON, sig: SVC_SIG }; }, st: function () { return ST; }, isHidden: isHidden, hiddenKeys: hiddenKeys, serviceCatalog: serviceCatalog, summarizeStreams: summarizeStreams, createRadio: createRadio, seedKeys: seedKeys, ext: function () { return EXT; }, jw: function () { return JW; }, scoresOf: scoresOf };
 boot();
 })();

@@ -6,12 +6,17 @@
  *   GET /?tmdb=603&type=movie&ot=The%20Matrix&t=Matrix&y=1999
  * y devuelve, para Argentina, qué servicios de suscripción tienen ese título, en qué calidad
  * (SD, HD, 4K), con qué tecnología de imagen y sonido, y en qué idiomas de audio y subtítulos.
+ * También devuelve los puntajes de IMDb y Rotten Tomatoes que tiene JustWatch: la app los usa
+ * cuando OMDb se queda sin consultas del día.
  *
  * - No usa claves ni guarda nada tuyo.
  * - Solo responde a la página de WatchListo (ALLOWED_ORIGINS).
  * - Cada título se le pide a JustWatch como mucho una vez por día: después responde la caché
  *   de Cloudflare.
  * - Devuelve solo números, códigos de idioma y nombres de servicio validados.
+ *
+ * Versión 2 (puntajes). Si la app dice que el Worker está desactualizado, pegá este archivo
+ * completo de nuevo en Cloudflare y tocá Deploy.
  */
 
 const ALLOWED_ORIGINS = ['https://panchy93.github.io'];
@@ -24,7 +29,11 @@ const QUERY = `query S($country: Country!, $language: Language!, $f: TitleFilter
   popularTitles(country: $country, filter: $f, first: 8, sortBy: POPULAR, sortRandomSeed: 0) {
     edges { node {
       objectType
-      content(country: $country, language: $language) { originalReleaseYear externalIds { tmdbId } }
+      content(country: $country, language: $language) {
+        originalReleaseYear
+        externalIds { tmdbId imdbId }
+        scoring { imdbScore imdbVotes tomatoMeter }
+      }
       offers(country: $country, platform: WEB, filter: { bestOnly: false }) {
         monetizationType presentationType audioLanguages subtitleLanguages videoTechnology audioTechnology
         package { packageId clearName }
@@ -57,20 +66,21 @@ export default {
     if (!/^\d{1,10}$/.test(tmdb) || (type !== 'movie' && type !== 'tv') || !titles.length) return json({ error: 'params' }, 400, cors);
 
     const cache = caches.default;
-    const key = new Request('https://watchlisto-jw.cache/' + type + '/' + tmdb);
+    const key = new Request('https://watchlisto-jw.cache/v2/' + type + '/' + tmdb);
     const hit = await cache.match(key);
     if (hit) return withHeaders(hit, cors);
 
-    let offers = null;
+    let node = null;
     try {
       for (const t of titles) {
-        offers = await lookup(t, type, tmdb, year);
-        if (offers) break;
+        node = await lookup(t, type, tmdb, year);
+        if (node) break;
       }
     } catch (e) {
       return json({ error: 'upstream' }, 502, cors);
     }
-    const res = json({ v: 1, found: !!offers, offers: offers || [] }, 200, { 'Cache-Control': 'public, max-age=' + TTL });
+    const body = { v: 2, found: !!node, offers: node ? summarize(node.offers || []) : [], sc: node ? scores(node.content) : null };
+    const res = json(body, 200, { 'Cache-Control': 'public, max-age=' + TTL });
     ctx.waitUntil(cache.put(key, res.clone()));
     return withHeaders(res, cors);
   }
@@ -95,8 +105,19 @@ async function lookup(title, type, tmdb, year) {
   if (!r.ok) throw new Error('justwatch ' + r.status);
   const j = await r.json();
   const edges = (((j || {}).data || {}).popularTitles || {}).edges || [];
-  const node = edges.map((e) => e && e.node).find((n) => n && n.content && n.content.externalIds && String(n.content.externalIds.tmdbId) === tmdb);
-  return node ? summarize(node.offers || []) : null;
+  return edges.map((e) => e && e.node).find((n) => n && n.content && n.content.externalIds && String(n.content.externalIds.tmdbId) === tmdb) || null;
+}
+
+/* puntajes de IMDb (nota y votos) y Rotten Tomatoes (Tomatometer), solo si son números válidos */
+function scores(content) {
+  const s = (content && content.scoring) || {}, ids = (content && content.externalIds) || {};
+  const out = {};
+  const i = Number(s.imdbScore), iv = Number(s.imdbVotes), rt = Number(s.tomatoMeter);
+  if (Number.isFinite(i) && i > 0 && i <= 10) out.i = Math.round(i * 10) / 10;
+  if (Number.isFinite(iv) && iv > 0 && iv < 1e8) out.iv = Math.round(iv);
+  if (typeof s.tomatoMeter === 'number' && Number.isFinite(rt) && rt >= 0 && rt <= 100) out.rt = Math.round(rt);
+  if (typeof ids.imdbId === 'string' && /^tt\d{5,10}$/.test(ids.imdbId)) out.m = ids.imdbId;
+  return out.i !== undefined || out.rt !== undefined ? out : null;
 }
 
 /* agrupa por servicio: la mejor calidad y todos los idiomas y tecnologías que ofrece */
