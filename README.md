@@ -88,7 +88,7 @@ JustWatch no deja que otras páginas lo consulten desde el navegador, así que l
 
 ## Ficha
 
-Arriba, el póster con el título y cuatro íconos: Mi lista, vista, **+** (sumar a cualquier lista o crear una) y **⋯** (Más como esta, Armar festival, No me interesa y, en un festival, usar como base o sacar). Después: puntajes en chico con las etiquetas de la curaduría, tus estrellas, tagline, sinopsis, tráiler, ficha técnica (equipo, sección de la curaduría y parientes), tus listas y dónde verla.
+Arriba, el póster con el título y cuatro íconos: Mi lista, vista, **+** (sumar a cualquier lista o crear una) y **⋯** (No me interesa y, en un festival, usar como base o sacar). Después: puntajes en chico con las etiquetas de la curaduría, tus estrellas (con **Quitar** si te equivocaste; si la vista se había marcado sola al puntuar, se desmarca), tagline, sinopsis, tráiler, ficha técnica (equipo, sección de la curaduría y parientes), tus listas con **Armar festival con esta**, dónde verla y, al pie, **Más como esta**: un carrusel que se busca recién cuando llegás ahí, con **Ver todas** para la vista completa.
 
 - **Tráiler:** se ve en la misma ficha (miniatura con play). Sigue andando aunque puntúes o sumes a una lista, y se corta al cerrar.
 - **Volver y cerrar:** el botón de cerrar queda siempre visible arriba (también debajo de la isla del iPhone). Si la ficha se abrió desde otra pantalla (por ejemplo, Random), aparece además un botón para volver. Instalada en iPhone, deslizar desde el borde izquierdo hace lo mismo que el Atrás de Android. Las vistas de una persona, "Más como esta" y las búsquedas tienen **Volver** arriba a la izquierda.

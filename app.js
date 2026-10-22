@@ -1479,8 +1479,6 @@ function renderDetail() {
       return '<button class="mi" type="button" role="menuitemcheckbox" aria-checked="' + isIn(l, it.k) + '" data-dlist="' + esc(l.id) + '"><span class="box">' + ICON.check + '</span><span class="lname">' + esc(l.name) + '</span></button>';
     }).join('') + '<form class="dpop-new" data-dpopform autocomplete="off"><label class="sr" for="dPopName">Nombre de la lista nueva</label><input class="inp" id="dPopName" maxlength="40" placeholder="Lista nueva"><button class="btn btn-sm" type="submit">Crear</button></form></div>';
   var popMore = '<div class="dpop-panel" role="menu" aria-label="Más opciones">' +
-      '<button class="mi" type="button" data-dact="reco">Más como esta</button>' +
-      '<button class="mi" type="button" data-dact="radio">' + ICON.ticket + 'Armar festival con esta</button>' +
       (inFest ? (isBase ? '<p class="mi-note">Es una de las pelis base de este festival.</p>' : '<button class="mi" type="button" data-dact="seed">Usar como base del festival</button>') + '<button class="mi" type="button" data-dact="nope">Sacar del festival</button>' : '') +
       '<button class="mi" type="button" data-dact="hide" aria-pressed="' + hidden + '">' + (hidden ? 'Volver a mostrar' : 'No me interesa · ocultar') + '</button></div>';
   var side =
@@ -1499,13 +1497,16 @@ function renderDetail() {
   var partA =
     '<div class="det-scores">' + scores + (ctags.length ? '<span class="det-tags">' + ctags.map(function (t) { return '<span class="ctag">' + esc(t) + '</span>'; }).join('') + '</span>' : '') + '</div>' +
     '<div class="det-stars"><span class="stars" id="myStars" role="group" aria-label="Tu puntaje" data-cur="' + stars + '">' + starBtns + '</span>' +
+    (stars ? '<button class="star-clear" type="button" data-starclear aria-label="Quitar tu puntaje" title="Quitar tu puntaje">' + ICON.x + '<span>Quitar</span></button>' : '') +
     '<p class="star-hint" id="starHint" aria-live="polite">' + starHintText(stars) + '</p></div>' + duoRowHTML(it) +
     (full && full.tagline ? '<p class="tagline">' + esc(full.tagline) + '</p>' : '') +
     (full ? '<p class="overview">' + esc(full.overview || 'Sin sinopsis en este idioma.') + '</p>' : (D.error ? '<p class="err">' + esc(D.error) + '</p>' : '<p class="hint">Cargando la ficha…</p>'));
   var partB =
     (people ? '<div class="dsec"><h3>Ficha técnica</h3><dl class="kv">' + people + '</dl></div>' : '') +
-    '<div class="dsec"><h3>Tus listas</h3><div class="chips">' + listChips + (D.newList ? '' : newList) + '</div>' + (D.newList ? newList : '') + '</div>' +
+    '<div class="dsec"><h3>Tus listas</h3><div class="chips">' + listChips + (D.newList ? '' : newList) + '</div>' + (D.newList ? newList : '') +
+      '<div class="dfest"><button class="btn btn-sm" type="button" data-dact="radio">' + ICON.ticket + 'Armar festival con esta</button><span class="hint">Una lista que se completa sola a partir de esta.</span></div></div>' +
     wtw +
+    '<div class="dsec dreco" id="detReco">' + detRecoHTML(D) + '</div>' +
     '<div class="links">' + links.join('') + '</div>';
   /* La ficha se arma una vez por título y después se actualiza por partes: así el tráiler,
      si está andando, no se corta cuando llegan los puntajes o tocás una estrella. */
@@ -1528,11 +1529,41 @@ function renderDetail() {
     tr.dataset.v = vkey; tr.hidden = !vkey;
     tr.innerHTML = vkey ? '<h3>Tráiler</h3><button class="trailer-thumb" type="button" data-trailer="' + vkey + '" aria-label="Reproducir el tráiler acá"><img alt="" loading="lazy" src="https://i.ytimg.com/vi/' + vkey + '/hqdefault.jpg"><span class="trailer-play" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg></span></button>' : '';
   }
-  syncDlgBack();
+  syncDlgBack(); watchDetReco(D);
   Object.keys(keepVals).forEach(function (id) { var x = document.getElementById(id); if (x) x.value = keepVals[id]; });
   var ni = $('#dNewName');
   if (ni && D.focusNew) { ni.focus(); D.focusNew = false; }
   else if (focusedId) { var fx = document.getElementById(focusedId); if (fx && fx.tagName === 'INPUT') fx.focus(); }
+}
+/* «Más como esta» al pie de la ficha: se busca recién cuando llegás a esa parte */
+function detRecoHTML(D) {
+  var head = '<div class="dreco-h"><h3>Más como esta</h3>' + (Array.isArray(D.reco) && D.reco.length ? '<button class="linkbtn" type="button" data-dact="reco">Ver todas ›</button>' : '') + '</div>';
+  if (D.reco === 'error') return head + '<p class="hint">No pude buscar parecidas ahora.</p>';
+  if (!Array.isArray(D.reco)) return head + '<div class="reco-row is-loading" aria-hidden="true">' + '<span class="reco-skel"></span>'.repeat(6) + '</div>';
+  if (!D.reco.length) return head + '<p class="hint">No encontré parecidas que no hayas visto u ocultado.</p>';
+  return head + '<div class="reco-row">' + D.reco.map(function (it) {
+    var p = safePath(it.p);
+    return '<button class="reco-card" type="button" data-recok="' + esc(it.k) + '" title="' + esc(it.t) + '"><span class="reco-p">' + (p ? '<img alt="" loading="lazy" src="' + IMG + 'w185' + p + '">' : '<span class="noposter">' + esc(it.t) + '</span>') +
+      (isSeen(it.k) ? '<span class="reco-seen">Vista</span>' : '') + '</span><span class="reco-t">' + esc(it.t) + '</span><span class="reco-y">' + (it.y || '') + '</span></button>';
+  }).join('') + '</div>';
+}
+function watchDetReco(D) {
+  if (D.reco || !D.full) return;
+  var el = $('#detReco'); if (!el) return;
+  if (state.recoIO) state.recoIO.disconnect();
+  if (!('IntersectionObserver' in window)) { loadDetReco(D); return; }
+  state.recoIO = new IntersectionObserver(function (es) { if (es.some(function (e) { return e.isIntersecting; })) { state.recoIO.disconnect(); loadDetReco(D); } }, { root: $('#dlgDetail'), rootMargin: '0px 0px 500px 0px' });
+  state.recoIO.observe(el);
+}
+async function loadDetReco(D) {
+  if (D.reco) return;
+  D.reco = 'loading';
+  try {
+    var recs = await recommend([D.it]);
+    D.reco = recs.map(function (r) { return r.it; }).filter(function (it) { return it.k !== D.it.k && !isHidden(it.k) && !seenNow(it.k); }).slice(0, 14);
+    D.recoMap = new Map(D.reco.map(function (it) { return [it.k, it]; }));
+  } catch (e) { if (e.fatal) { fatal(e); return; } D.reco = 'error'; }
+  if (state.detail === D) { var box = $('#detReco'); if (box) box.innerHTML = detRecoHTML(D); }
 }
 function playTrailer(key) {
   var tr = $('#detTrailer'); if (!tr || !/^[A-Za-z0-9_-]{6,20}$/.test(key)) return;
@@ -4125,13 +4156,21 @@ function bind() {
     if (cst) { compSetStar(it, +cst.dataset.cstar); renderDetail(); return; }
     var st = e.target.closest('[data-star]');
     if (st && Date.now() - (state.starTouchAt || 0) < 700) return;
-    if (st) { var n = +st.dataset.star; if (setStar(it, starOf(it.k) === n ? 0 : n)) toast('Puntuada y marcada como vista.'); renderDetail(); updateCard(it.k); return; }
+    if (st) { var n = +st.dataset.star; if (setStar(it, starOf(it.k) === n ? 0 : n)) { D.autoSeen = it.k; toast('Puntuada y marcada como vista.'); } renderDetail(); updateCard(it.k); return; }
     var dl = e.target.closest('[data-dlist]');
     if (dl) { toggleList(dl.dataset.dlist, it); renderDetail(); updateCard(it.k); if (state.ui.view === 'lists') refreshSoon(); return; }
     if (e.target.closest('[data-dnewlist]')) { D.newList = true; D.focusNew = true; renderDetail(); return; }
     if (e.target.closest('[data-dnewcancel]')) { D.newList = false; renderDetail(); return; }
     var tb = e.target.closest('[data-trailer]');
     if (tb) { playTrailer(tb.dataset.trailer); return; }
+    var rk = e.target.closest('[data-recok]');
+    if (rk) { var rit = D.recoMap && D.recoMap.get(rk.dataset.recok); if (rit) openDetail(rit); return; }
+    if (e.target.closest('[data-starclear]')) {
+      setStar(it, 0);
+      /* si la vista se había marcado sola al puntuar, se desmarca también */
+      if (D.autoSeen === it.k && isSeen(it.k)) toggleSeen(it);
+      D.autoSeen = null; toast('Puntaje quitado.'); renderDetail(); updateCard(it.k); return;
+    }
   });
   dd.addEventListener('toggle', function (e) {
     var dt = e.target; if (!dt.matches || !dt.matches('details.dpop') || !state.detail) return;
@@ -4157,7 +4196,7 @@ function bind() {
     toast('Lista «' + l.name + '» creada con este título.');
     renderDetail(); updateCard(D.it.k); if (state.ui.view === 'lists') refreshSoon();
   });
-  dd.addEventListener('close', function () { state.detail = null; resetDetailView(); });
+  dd.addEventListener('close', function () { state.detail = null; if (state.recoIO) state.recoIO.disconnect(); resetDetailView(); });
   dd.addEventListener('mouseover', function (e) { var b = e.target.closest('#myStars [data-star]'); if (b) starPreview(+b.dataset.star); });
   dd.addEventListener('mouseout', function (e) { if (e.target.closest('#myStars') && !(e.relatedTarget && e.relatedTarget.closest && e.relatedTarget.closest('#myStars'))) starPreview(null); });
   /* con el dedo: se desliza sobre las estrellas viendo qué significa cada una y se suelta para puntuar */
@@ -4176,7 +4215,7 @@ function bind() {
     var D = state.detail; if (!D) return;
     var cur = starOf(D.it.k), n = !g.moved && g.n === cur ? 0 : g.n;
     state.starTouchAt = Date.now();
-    if (setStar(D.it, n)) toast('Puntuada y marcada como vista.');
+    if (setStar(D.it, n)) { D.autoSeen = D.it.k; toast('Puntuada y marcada como vista.'); }
     renderDetail(); updateCard(D.it.k);
   };
   dd.addEventListener('pointerup', starEnd);

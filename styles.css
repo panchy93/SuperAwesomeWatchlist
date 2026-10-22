@@ -254,7 +254,7 @@ dialog[open].fallback{position:fixed;top:14px;left:0;right:0;margin:0 auto;z-ind
 .star{border:0;background:none;padding:3px;color:var(--line);display:grid;place-items:center}
 .star svg{width:22px;height:22px}
 .star.on{color:var(--accent)}
-.stars{touch-action:none;-webkit-user-select:none;user-select:none}
+.stars{touch-action:pan-y;-webkit-user-select:none;user-select:none}
 .stars.previewing .star{color:var(--line)}
 .stars.previewing .star.pre{color:var(--accent)}
 .star-hint{margin:6px 0 0;font-size:13px;color:var(--muted);min-height:18px}
@@ -686,3 +686,25 @@ body.gated{overflow:hidden}
 .rumbo>.rumbo-h,.rumbo>.rumbo-chips,.rumbo>.rumbo-more{margin:0 14px}
 .rumbo[open]{padding-bottom:12px}
 .rumbo[open]>.rumbo-chips{margin-top:8px;margin-bottom:6px}
+
+/* quitar el puntaje */
+.star-clear{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--line);background:transparent;color:var(--muted);border-radius:999px;padding:4px 10px 4px 7px;font-size:12.5px;font-weight:600}
+.star-clear svg{width:13px;height:13px}
+.star-clear:hover{color:var(--fg);border-color:var(--muted)}
+/* armar festival, después de las listas */
+.dfest{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin-top:4px}
+.dfest .btn svg{width:15px;height:15px}
+/* más como esta: carrusel al pie de la ficha */
+.dreco-h{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
+.reco-row{display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;padding:2px 2px 8px;margin:0 -2px;scrollbar-width:thin;-webkit-overflow-scrolling:touch}
+.reco-card{flex:0 0 118px;scroll-snap-align:start;display:flex;flex-direction:column;gap:4px;border:0;background:none;padding:0;text-align:left;color:var(--fg);cursor:pointer}
+.reco-p{position:relative;display:block;aspect-ratio:2/3;border-radius:8px;overflow:hidden;background:var(--surface-2)}
+.reco-p img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .2s}
+.reco-card:hover .reco-p img{transform:scale(1.04)}
+.reco-p .noposter{display:grid;place-items:center;height:100%;padding:8px;font-size:12px;text-align:center;color:var(--muted)}
+.reco-seen{position:absolute;left:6px;bottom:6px;font-size:10px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;padding:2px 6px;border-radius:4px;background:var(--on-img-bg);color:var(--on-img)}
+.reco-t{font-size:13px;font-weight:600;line-height:1.25;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.reco-y{font-size:12px;color:var(--muted)}
+.reco-skel{flex:0 0 118px;aspect-ratio:2/3;border-radius:8px;background:var(--surface-2);animation:recopulse 1.4s ease-in-out infinite}
+@keyframes recopulse{50%{opacity:.5}}
+@media (max-width:680px){.reco-card,.reco-skel{flex-basis:104px}}
