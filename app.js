@@ -584,7 +584,9 @@ function pumpOmdb() {
   }
   progressNote();
 }
+var countSoon = debounce(function () { renderCount(); }, 800);
 function onEnriched(it) {
+  if (omdbRatingFilter()) countSoon();
   if (ST.wait.has(it.k)) { ST.wait.delete(it.k); wantStremio([it]); }
   if (Q.wantOm.has(it.k)) { Q.wantOm.delete(it.k); var d = state.details[it.k]; if (d && d.imdb) { queueOmdb(d.imdb, it); pumpOmdb(); } }
   updateCard(it.k);
@@ -1117,6 +1119,8 @@ function observeCards() {
 }
 function emptyHTML() {
   var sp = state.special;
+  var gap = !sp && state.ui.view === 'catalog' ? ratingGap() : null;
+  if (gap && gap.pend) return '<strong>Trayendo puntajes…</strong><p>Busco el puntaje de ' + esc(SRC[state.f.ratingSrc].label) + ' de ' + nf.format(gap.pend) + ' títulos que cumplen el resto de los filtros. Van apareciendo solos.</p>';
   if (sp && sp.kind === 'search') return '<strong>Sin resultados</strong><p>TMDB no encontró nada para «' + esc(sp.q) + '».</p>';
   if (sp && sp.error) return '<strong>No pude cargar esto</strong><p>' + esc(sp.error) + '</p><button class="btn" type="button" data-back>Volver</button>';
   if (sp) return '<strong>Nada coincide</strong><p>Hay ' + nf.format((sp.items || []).length) + ' títulos, pero ninguno pasa los filtros.</p><button class="btn" type="button" data-clear>Limpiar filtros</button>';
@@ -1132,6 +1136,13 @@ function emptyHTML() {
   if (state.ui.source !== 'all' && !state.catalogs[state.ui.type]) return '';
   var extra = state.q && state.q.length >= 2 ? '<button class="btn btn-accent" type="button" data-global>Buscar «' + esc(state.q) + '» en todo TMDB</button>' : '';
   return '<strong>Nada coincide</strong><p>Probá bajar el rating mínimo, sacar algún género o prender otro servicio.</p><div class="pick-bar">' + extra + '<button class="btn" type="button" data-clear>Limpiar filtros</button></div>';
+}
+function ratingGapHTML() {
+  var g = ratingGap(); if (!g || (!g.pend && !g.none)) return '';
+  var name = SRC[state.f.ratingSrc].label, out = [];
+  if (g.pend) out.push('trayendo el puntaje de ' + name + ' de ' + nf.format(g.pend) + ' más');
+  if (g.none && !state.f.includeUnknown) out.push(nf.format(g.none) + ' sin dato de ' + name + ' en OMDb <button class="linkbtn" type="button" data-incunk>mostrarlas</button>');
+  return '<small class="count-note">' + out.join(' · ') + '</small>';
 }
 function renderCount() {
   var el = $('#count'), n = state.filtered.length, gb = $('#globalBtn');
@@ -1154,11 +1165,15 @@ function renderCount() {
     if (state.f.people.length) el.innerHTML = nf.format(n) + ' ' + noun(state.ui.type, n) + '<small>con ' + esc(state.f.people.map(function (p) { return p.name; }).join(' o ')) + '</small>';
     else {
       var A = state.all, ready = A && A.sig === allSig() && A.page > 0;
-      el.innerHTML = ready ? nf.format(A.totalResults || n) + ' ' + noun(state.ui.type, A.totalResults || n) + '<small>en todo el cine</small>' : 'Todo el cine<small>buscando…</small>';
+      /* con filtros que TMDB no sabe aplicar (puntajes de OMDb, «solo mis servicios»), el total de TMDB engaña: se muestra lo que pasó */
+      var clientOnly = omdbRatingFilter() || state.f.onlyMine;
+      el.innerHTML = !ready ? 'Todo el cine<small>buscando…</small>' : clientOnly
+        ? nf.format(n) + ' ' + noun(state.ui.type, n) + '<small>pasaron el filtro entre las ' + nf.format(A.items.length) + ' revisadas de ' + nf.format(A.totalResults || 0) + ' en todo el cine</small>' + ratingGapHTML()
+        : nf.format(A.totalResults || n) + ' ' + noun(state.ui.type, A.totalResults || n) + '<small>en todo el cine</small>';
     }
   } else {
     if (!state.catalogs[state.ui.type]) { el.innerHTML = state.fatal ? 'WatchListo' : 'Armando tu cartelera<small>la primera vez tarda un poco</small>'; return; }
-    el.innerHTML = nf.format(n) + ' ' + noun(state.ui.type, n) + '<small>en tus servicios</small>';
+    el.innerHTML = nf.format(n) + ' ' + noun(state.ui.type, n) + '<small>en tus servicios</small>' + ratingGapHTML();
   }
   if (state.q && state.q.length >= 2) { gb.hidden = false; gb.textContent = 'Buscar «' + state.q + '» en todo TMDB'; gb.dataset.mode = 'search'; }
 }
@@ -1719,7 +1734,7 @@ async function extendCatalog() {
         });
       });
       EXT.rounds++;
-      if (applyFilters(added).length >= 12) break;
+      if (applyFilters(added, omdbRatingFilter()).length >= 12) break;
     }
     if (added.length) { saveCatalogSoon(type); }
     if (extServices().every(function (x) { return EXT.done[x.key]; })) EXT.end = true;
@@ -1731,6 +1746,18 @@ async function extendCatalog() {
   ratingsForFilter();
   var got = state.filtered.length - before;
   if (got > 0) toast('Sumé ' + got + (got === 1 ? ' título' : ' títulos') + ' más de tus servicios.');
+}
+function omdbRatingFilter() { var f = state.f; return f.ratingMin > 0 && f.ratingSrc !== 'tmdb' && f.ratingSrc !== 'avg'; }
+/* cuántos de los que cumplen el resto de los filtros todavía no tienen el puntaje elegido, y cuántos no lo tienen en OMDb */
+function ratingGap() {
+  if (!omdbRatingFilter() || !state.settings.omdbKey) return null;
+  var src = state.f.ratingSrc, pend = 0, none = 0;
+  applyFilters(currentPool(), true).forEach(function (it) {
+    var sc = scoresOf(it);
+    if (nz(sc[src])) return;
+    if (sc.omdbDone || sc.noImdb) none++; else pend++;
+  });
+  return { pend: pend, none: none };
 }
 var saveCatalogSoon = debounce(function (type) { var c = state.catalogs[type]; if (c) LS.set('catalog.' + type, c); }, 2000);
 /* con un mínimo de IMDb, Rotten Tomatoes o Metacritic, se traen esos puntajes para lo que cumple
@@ -4013,6 +4040,7 @@ function bind() {
     if (t.closest('[data-reload]')) { var ty = state.ui.type; state.catalogs[ty] = null; LS.del('catalog.' + ty); refresh(); loadCatalogAndRefresh(ty); return; }
     if (t.closest('[data-fill]')) { wantRatings(state.filtered.slice(0, Math.max(0, 1000 - omdbUsage().n))); toast('Trayendo ratings de OMDb, empezando por las primeras de la lista.'); return; }
     if (t.closest('[data-clear]')) { clearFilters(); return; }
+    if (t.closest('[data-incunk]')) { state.f.includeUnknown = true; $('#incUnknown').checked = true; refresh(); toast('Ahora también ves las que no tienen ese puntaje.'); return; }
     if (t.closest('[data-global]')) { globalSearch(state.q); return; }
     if (t.closest('[data-go="catalog"]')) { setView('catalog'); return; }
     if (t.closest('[data-retry]')) { showBanner(''); start(); return; }

@@ -708,3 +708,5 @@ body.gated{overflow:hidden}
 .reco-skel{flex:0 0 118px;aspect-ratio:2/3;border-radius:8px;background:var(--surface-2);animation:recopulse 1.4s ease-in-out infinite}
 @keyframes recopulse{50%{opacity:.5}}
 @media (max-width:680px){.reco-card,.reco-skel{flex-basis:104px}}
+
+.count small.count-note{display:block;margin:4px 0 0;font-size:12.5px}
